@@ -2,6 +2,7 @@ package bgu.spl.net.impl.stomp;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import bgu.spl.net.api.StompMessagingProtocol;
 import bgu.spl.net.impl.data.Database;
@@ -17,6 +18,7 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<String
     private String currentUser;
     private Map<String, String> topics = new HashMap<>();
     private final Database database = Database.getInstance();
+    private static final AtomicInteger messageIdCounter = new AtomicInteger(0);
 
     @Override
     public void start(int connectionId, Connections<String> connections) {
@@ -114,23 +116,19 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<String
             return;
         }
 
-        // 3. יצירת הודעת MESSAGE להפצה
-        // השרת צריך לייצר message-id ייחודי לכל הודעה [cite: 98]
+    
         // שימי לב: ה-subscription ID שנשלח ב-MESSAGE אמור להיות ה-ID של המקבל, לא
         // השולח.
         // בגלל מגבלות ה-Connections הנוכחי (שידור גורף), נשים כרגע ערך כללי או נטפל בזה
         // בשיפור ה-Connections בהמשך.
 
-        // נניח שיש לך מונה סטטי במחלקה: private static AtomicInteger messageIdCounter =
-        // new AtomicInteger(0);
         int msgId = messageIdCounter.incrementAndGet();
 
         Frame messageFrame = Frame.message(
                 destination,
-                "0", // הערה למטה: זה אמור להיות ה-Subscription ID של המקבל
                 msgId,
                 body,
-                currentUser // שם המשתמש השולח חייב להופיע [cite: 384]
+                currentUser
         );
 
         // 4. שליחה לכל המנויים בערוץ
@@ -141,4 +139,18 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<String
             connections.send(connectionId, Frame.receipt(receipt).toString());
         }
     }
+
+    private void handleSubscribe(Map<String, String> headers) {
+    String destination = headers.get("destination");
+    String subscriptionId = headers.get("id"); 
+    if (destination != null && subscriptionId != null) {
+        // שומרים ב-Connections את הקשר בין הלקוח לערוץ ול-ID שלו
+        ((ConnectionsImpl<String>) connections).subscribe(connectionId, destination, subscriptionId);
+        
+        // חשוב: לשמור גם במפה מקומית בפרוטוקול כדי לדעת לבצע UNSUBSCRIBE לפי ID
+        this.mySubscriptions.put(subscriptionId, destination);
+        
+        sendReceiptIfRequired(headers);
+    }
+}
 }
