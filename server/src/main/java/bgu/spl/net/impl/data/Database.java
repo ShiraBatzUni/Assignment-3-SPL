@@ -26,27 +26,28 @@ public class Database {
 
 	/**
 	 * Execute SQL query and return result
+	 * 
 	 * @param sql SQL query string
 	 * @return Result string from SQL server
 	 */
 	private String executeSQL(String sql) {
 		try (Socket socket = new Socket(sqlHost, sqlPort);
-			 PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-			 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
-			
+				PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+				BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
+
 			// Send SQL with null terminator
 			out.print(sql + '\0');
 			out.flush();
-			
+
 			// Read response until null terminator
 			StringBuilder response = new StringBuilder();
 			int ch;
 			while ((ch = in.read()) != -1 && ch != '\0') {
 				response.append((char) ch);
 			}
-			
+
 			return response.toString();
-			
+
 		} catch (Exception e) {
 			System.err.println("SQL Error: " + e.getMessage());
 			return "ERROR:" + e.getMessage();
@@ -57,7 +58,8 @@ public class Database {
 	 * Escape SQL special characters to prevent SQL injection
 	 */
 	private String escapeSql(String str) {
-		if (str == null) return "";
+		if (str == null)
+			return "";
 		return str.replace("'", "''");
 	}
 
@@ -73,11 +75,10 @@ public class Database {
 		if (addNewUserCase(connectionId, username, password)) {
 			// Log new user registration in SQL
 			String sql = String.format(
-				"INSERT INTO users (username, password, registration_date) VALUES ('%s', '%s', datetime('now'))",
-				escapeSql(username), escapeSql(password)
-			);
+					"INSERT INTO users (username, password, registration_date) VALUES ('%s', '%s', datetime('now'))",
+					escapeSql(username), escapeSql(password));
 			executeSQL(sql);
-			
+
 			// Log login
 			logLogin(username);
 			return LoginStatus.ADDED_NEW_USER;
@@ -93,9 +94,8 @@ public class Database {
 
 	private void logLogin(String username) {
 		String sql = String.format(
-			"INSERT INTO login_history (username, login_time) VALUES ('%s', datetime('now'))",
-			escapeSql(username)
-		);
+				"INSERT INTO login_history (username, login_time) VALUES ('%s', datetime('now'))",
+				escapeSql(username));
 		executeSQL(sql);
 	}
 
@@ -134,13 +134,12 @@ public class Database {
 		if (user != null) {
 			// Log logout in SQL
 			String sql = String.format(
-				"UPDATE login_history SET logout_time=datetime('now') " +
-				"WHERE username='%s' AND logout_time IS NULL " +
-				"ORDER BY login_time DESC LIMIT 1",
-				escapeSql(user.name)
-			);
+					"UPDATE login_history SET logout_time=datetime('now') " +
+							"WHERE username='%s' AND logout_time IS NULL " +
+							"ORDER BY login_time DESC LIMIT 1",
+					escapeSql(user.name));
 			executeSQL(sql);
-			
+
 			user.logout();
 			connectionsIdMap.remove(connectionsId);
 		}
@@ -148,16 +147,16 @@ public class Database {
 
 	/**
 	 * Track file upload in SQL database
-	 * @param username User who uploaded the file
-	 * @param filename Name of the file
+	 * 
+	 * @param username    User who uploaded the file
+	 * @param filename    Name of the file
 	 * @param gameChannel Game channel the file was reported to
 	 */
 	public void trackFileUpload(String username, String filename, String gameChannel) {
 		String sql = String.format(
-			"INSERT INTO file_tracking (username, filename, upload_time, game_channel) " +
-			"VALUES ('%s', '%s', datetime('now'), '%s')",
-			escapeSql(username), escapeSql(filename), escapeSql(gameChannel)
-		);
+				"INSERT INTO file_tracking (username, filename, upload_time, game_channel) " +
+						"VALUES ('%s', '%s', datetime('now'), '%s')",
+				escapeSql(username), escapeSql(filename), escapeSql(gameChannel));
 		executeSQL(sql);
 	}
 
@@ -168,7 +167,7 @@ public class Database {
 		System.out.println(repeat("=", 80));
 		System.out.println("SERVER REPORT - Generated at: " + java.time.LocalDateTime.now());
 		System.out.println(repeat("=", 80));
-		
+
 		// List all users
 		System.out.println("\n1. REGISTERED USERS:");
 		System.out.println(repeat("-", 80));
@@ -184,7 +183,7 @@ public class Database {
 				System.out.println("   No users registered");
 			}
 		}
-		
+
 		// Login history for each user
 		System.out.println("\n2. LOGIN HISTORY:");
 		System.out.println(repeat("-", 80));
@@ -202,14 +201,15 @@ public class Database {
 							System.out.println("\n   User: " + currentUser);
 						}
 						System.out.println("      Login:  " + fields[1]);
-						System.out.println("      Logout: " + (fields[2].equals("None") ? "Still logged in" : fields[2]));
+						System.out
+								.println("      Logout: " + (fields[2].equals("None") ? "Still logged in" : fields[2]));
 					}
 				}
 			} else {
 				System.out.println("   No login history");
 			}
 		}
-		
+
 		// File uploads for each user
 		System.out.println("\n3. FILE UPLOADS:");
 		System.out.println(repeat("-", 80));
@@ -236,18 +236,19 @@ public class Database {
 				System.out.println("   No files uploaded");
 			}
 		}
-		
-	System.out.println(repeat("=", 80));
-}
 
-private String repeat(String str, int times) {
-	StringBuilder sb = new StringBuilder();
-	for (int i = 0; i < times; i++) {
-		sb.append(str);
+		System.out.println(repeat("=", 80));
 	}
-	return sb.toString();
-}
 
-private static class Instance {
-	static Database instance = new Database();
-}}
+	private String repeat(String str, int times) {
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < times; i++) {
+			sb.append(str);
+		}
+		return sb.toString();
+	}
+
+	private static class Instance {
+		static Database instance = new Database();
+	}
+}
