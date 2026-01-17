@@ -2,6 +2,9 @@ package bgu.spl.net.srv;
 
 import bgu.spl.net.api.MessageEncoderDecoder;
 import bgu.spl.net.api.MessagingProtocol;
+import bgu.spl.net.api.StompMessagingProtocol;
+import bgu.spl.net.impl.stomp.ConnectionsImpl;
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.ClosedSelectorException;
@@ -19,7 +22,8 @@ public class Reactor<T> implements Server<T> {
     private final Supplier<MessageEncoderDecoder<T>> readerFactory;
     private final ActorThreadPool pool;
     private Selector selector;
-
+    private final ConnectionsImpl<T> connections;
+    private int idCounter;
     private Thread selectorThread;
     private final ConcurrentLinkedQueue<Runnable> selectorTasks = new ConcurrentLinkedQueue<>();
 
@@ -33,6 +37,8 @@ public class Reactor<T> implements Server<T> {
         this.port = port;
         this.protocolFactory = protocolFactory;
         this.readerFactory = readerFactory;
+        connections = new ConnectionsImpl<>();
+        idCounter = 0;
     }
 
     @Override
@@ -95,11 +101,16 @@ public class Reactor<T> implements Server<T> {
     private void handleAccept(ServerSocketChannel serverChan, Selector selector) throws IOException {
         SocketChannel clientChan = serverChan.accept();
         clientChan.configureBlocking(false);
-        final NonBlockingConnectionHandler<T> handler = new NonBlockingConnectionHandler<>(
-                readerFactory.get(),
-                protocolFactory.get(),
-                clientChan,
-                this);
+        MessagingProtocol<T> protocol = protocolFactory.get();
+
+    if (protocol instanceof StompMessagingProtocol) {
+        ((StompMessagingProtocol<T>) protocol).start(idCounter, connections);
+    }
+    NonBlockingConnectionHandler<T> handler = new NonBlockingConnectionHandler<>(
+           readerFactory.get(), protocol, clientChan, this);
+        connections.addConnection(idCounter, handler);
+        idCounter++;
+
         clientChan.register(selector, SelectionKey.OP_READ, handler);
     }
 
