@@ -1,5 +1,6 @@
 package bgu.spl.net.impl.stomp;
 
+import bgu.spl.net.srv.Connections;
 import bgu.spl.net.srv.Server;
 
 public class StompServer {
@@ -14,21 +15,23 @@ public class StompServer {
         int port = Integer.parseInt(args[0]);
         String serverType = args[1];
 
+        Connections<String> connections = new ConnectionsImpl<>();
+
         if (serverType.equals("tpc")) {
-            // --- הפעלת שרת Thread-Per-Client ---
             Server.threadPerClient(
                     port,
-                    () -> new StompMessagingProtocolImpl(), // יצירת פרוטוקול
-                    () -> new StompEncoderDecoder()         // תיקון: שם המחלקה ללא Message
+                    StompMessagingProtocolImpl::new,
+                    StompMessageEncoderDecoder::new,
+                    connections
             ).serve();
 
         } else if (serverType.equals("reactor")) {
-            // --- הפעלת שרת Reactor ---
             Server.reactor(
                     Runtime.getRuntime().availableProcessors(),
                     port,
-                    () -> new StompMessagingProtocolImpl(),
-                    () -> new StompEncoderDecoder()         // תיקון: כנ"ל
+                    StompMessagingProtocolImpl::new,
+                    StompMessageEncoderDecoder::new,
+                    connections
             ).serve();
 
         } else {

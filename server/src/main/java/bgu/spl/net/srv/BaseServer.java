@@ -1,7 +1,6 @@
 package bgu.spl.net.srv;
 
 import bgu.spl.net.api.MessageEncoderDecoder;
-import bgu.spl.net.api.MessagingProtocol;
 import bgu.spl.net.api.StompMessagingProtocol;
 import bgu.spl.net.impl.stomp.ConnectionsImpl;
 
@@ -13,22 +12,22 @@ import java.util.function.Supplier;
 public abstract class BaseServer<T> implements Server<T> {
 
     private final int port;
-    private final Supplier<MessagingProtocol<T>> protocolFactory;
+    private final Supplier<StompMessagingProtocol<T>> protocolFactory;
     private final Supplier<MessageEncoderDecoder<T>> encdecFactory;
     private ServerSocket sock;
-    private final ConnectionsImpl<T> connections;
+    private final Connections<T> connections;
     private int idCounter;
 
     public BaseServer(
             int port,
-            Supplier<MessagingProtocol<T>> protocolFactory,
-            Supplier<MessageEncoderDecoder<T>> encdecFactory) {
+            Supplier<StompMessagingProtocol<T>> protocolFactory,
+            Supplier<MessageEncoderDecoder<T>> encdecFactory, Connections<T> connections) {
 
         this.port = port;
         this.protocolFactory = protocolFactory;
         this.encdecFactory = encdecFactory;
 		this.sock = null;
-        this.connections = new ConnectionsImpl<>();
+        this.connections = connections;
         this.idCounter = 0;
     }
 
@@ -43,7 +42,7 @@ public abstract class BaseServer<T> implements Server<T> {
             while (!Thread.currentThread().isInterrupted()) {
 
                 Socket clientSock = serverSock.accept();
-                MessagingProtocol<T> protocol = protocolFactory.get();
+                StompMessagingProtocol<T> protocol = protocolFactory.get();
                 
                 if (protocol instanceof StompMessagingProtocol) {
                     ((StompMessagingProtocol<T>) protocol).start(idCounter, connections);
@@ -54,7 +53,7 @@ public abstract class BaseServer<T> implements Server<T> {
                         encdecFactory.get(),
                         protocol); 
 
-                connections.addConnection(idCounter, handler);
+                ((ConnectionsImpl<T>)connections).addConnection(idCounter, handler);
                 idCounter++;
                 execute(handler);
             }
