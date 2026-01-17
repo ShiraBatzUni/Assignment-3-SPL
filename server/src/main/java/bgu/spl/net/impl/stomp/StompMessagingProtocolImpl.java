@@ -14,7 +14,6 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<String
     private int connectionId;
     private Connections<String> connections;
     private boolean shouldTerminate = false;
-    private boolean isLoggedIn;
     private String currentUser;
     private Map<String, String> topics = new HashMap<>();
     private final Database database = Database.getInstance();
@@ -68,12 +67,11 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<String
             return;
         }
 
-        LoginStatus status = Database.getInstance().login(connectionId, login, passcode);
+        LoginStatus status = database.login(connectionId, login, passcode);
 
         switch (status) {
             case LOGGED_IN_SUCCESSFULLY:
             case ADDED_NEW_USER:
-                this.isLoggedIn = true;
                 this.currentUser = login;
 
                 connections.send(connectionId, Frame.connected().toString());
@@ -194,6 +192,7 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<String
             connections.send(connectionId, Frame.receipt(receiptId).toString());
         }
         shouldTerminate = true;
+        currentUser = null;
         connections.disconnect(connectionId);
     }
 
