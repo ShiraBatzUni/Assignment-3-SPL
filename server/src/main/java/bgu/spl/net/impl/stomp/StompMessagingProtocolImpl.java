@@ -99,58 +99,107 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<String
 
     private void handleSend(Frame frame) {
         String destination = frame.getHeaders().get("destination");
-        String receipt = frame.getHeaders().get("receipt");
+        String receiptId = frame.getHeaders().get("receipt");
         String body = frame.getBody();
 
         if (destination == null) {
-            Frame error = Frame.error("Malformed Frame: No destination header", frame.toString());
-            connections.send(connectionId, error.toString());
+            connections.send(connectionId, Frame.error("Malformed Frame", frame.toString()).toString());
             shouldTerminate = true;
             return;
         }
 
         if (!topics.containsKey(destination)) {
-            Frame error = Frame.error("User is not subscribed to topic " + destination, frame.toString());
+            connections.send(connectionId, Frame.error("User not subscribed", frame.toString()).toString());
+            shouldTerminate = true;
+            return;
+        }
+
+        Map<Integer, String> subscribers = ((ConnectionsImpl<String>) connections).getSubscribers(destination);
+
+        if (subscribers != null) {
+            int msgId = messageIdCounter.incrementAndGet();
+
+            for (Map.Entry<Integer, String> entry : subscribers.entrySet()) {
+                Integer targetConnectionId = entry.getKey();
+                String targetAuthId = entry.getValue();
+                Frame messageFrame = Frame.message(
+                        destination,
+                        targetAuthId,
+                        msgId,
+                        body,
+                        currentUser);
+
+                connections.send(targetConnectionId, messageFrame.toString());
+            }
+        }
+
+        if (receiptId != null) {
+            connections.send(connectionId, Frame.receipt(receiptId).toString());
+        }
+    }
+
+    private void handleSubscribe(Frame frame) {
+        String destination = frame.getHeaders().get("destination");
+        String subId = frame.getHeaders().get("id");
+        String receiptId = frame.getHeaders().get("receipt");
+
+        if (destination == null || subId == null) {
+            Frame error = Frame.error("Malformed Frame: Missing destination or id headers", frame.toString());
             connections.send(connectionId, error.toString());
             shouldTerminate = true;
             return;
         }
 
-    
-        // שימי לב: ה-subscription ID שנשלח ב-MESSAGE אמור להיות ה-ID של המקבל, לא
-        // השולח.
-        // בגלל מגבלות ה-Connections הנוכחי (שידור גורף), נשים כרגע ערך כללי או נטפל בזה
-        // בשיפור ה-Connections בהמשך.
+        topics.put(destination, subId);
+        ((ConnectionsImpl<String>) connections).subscribe(destination, connectionId, subId);
 
-        int msgId = messageIdCounter.incrementAndGet();
-
-        Frame messageFrame = Frame.message(
-                destination,
-                msgId,
-                body,
-                currentUser
-        );
-
-        // 4. שליחה לכל המנויים בערוץ
-        connections.send(destination, messageFrame.toString());
-
-        // 5. שליחת קבלה (Receipt) אם התבקשה
-        if (receipt != null) {
-            connections.send(connectionId, Frame.receipt(receipt).toString());
+        if (receiptId != null) {
+            connections.send(connectionId, Frame.receipt(receiptId).toString());
         }
     }
 
-    private void handleSubscribe(Map<String, String> headers) {
-    String destination = headers.get("destination");
-    String subscriptionId = headers.get("id"); 
-    if (destination != null && subscriptionId != null) {
-        // שומרים ב-Connections את הקשר בין הלקוח לערוץ ול-ID שלו
-        ((ConnectionsImpl<String>) connections).subscribe(connectionId, destination, subscriptionId);
-        
-        // חשוב: לשמור גם במפה מקומית בפרוטוקול כדי לדעת לבצע UNSUBSCRIBE לפי ID
-        this.mySubscriptions.put(subscriptionId, destination);
-        
-        sendReceiptIfRequired(headers);
+    private void handleUnsubscribe(Frame frame) {
+        String subId = frame.getHeaders().get("id");
+        String receiptId = frame.getHeaders().get("receipt");
+
+        if (subId == null) {
+            connections.send(connectionId,
+                    Frame.error("Malformed Frame: Missing id header", frame.toString()).toString());
+            shouldTerminate = true;
+            return;
+        }
+
+        String topicToRemove = null;
+        for (Map.Entry<String, String> entry : topics.entrySet()) {
+            if (entry.getValue().equals(subId)) {
+                topicToRemove = entry.getKey();
+                break;
+            }
+        }
+
+        if (topicToRemove != null) {
+            topics.remove(topicToRemove);
+            ((ConnectionsImpl<String>) connections).unsubscribe(topicToRemove, connectionId);
+            if (receiptId != null) {
+                connections.send(connectionId, Frame.receipt(receiptId).toString());
+            }
+        } else {
+            connections.send(connectionId, Frame.error("Subscription ID not found", frame.toString()).toString());
+        }
     }
-}
+
+    private void handleDisconnect(Frame frame) {
+        String receiptId = frame.getHeaders().get("receipt");
+        if (receiptId != null) {
+            connections.send(connectionId, Frame.receipt(receiptId).toString());
+        }
+        shouldTerminate = true;
+        connections.disconnect(connectionId);
+    }
+
+    private void sendError(String message, String body) {
+        Frame errorFrame = Frame.error(message, body);
+        connections.send(connectionId, errorFrame.toString());
+        shouldTerminate = true;
+    }
 }
