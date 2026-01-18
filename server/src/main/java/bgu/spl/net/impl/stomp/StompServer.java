@@ -1,6 +1,5 @@
 package bgu.spl.net.impl.stomp;
 
-import bgu.spl.net.srv.Connections;
 import bgu.spl.net.srv.Server;
 
 public class StompServer {
@@ -14,27 +13,24 @@ public class StompServer {
 
         int port = Integer.parseInt(args[0]);
         String serverType = args[1];
-
-        Connections<String> connections = new ConnectionsImpl<>();
+        int numOfThreads = 4; 
 
         if (serverType.equals("tpc")) {
             Server.threadPerClient(
-                    port,
-                    StompMessagingProtocolImpl::new,
-                    StompMessageEncoderDecoder::new,
-                    connections
+                port,
+                () -> new StompMessagingProtocolImpl(), 
+                () -> new StompMessageEncoderDecoder()  
             ).serve();
-
-        } else if (serverType.equals("reactor")) {
+        } 
+        else if (serverType.equals("reactor")) { 
             Server.reactor(
-                    Runtime.getRuntime().availableProcessors(),
-                    port,
-                    StompMessagingProtocolImpl::new,
-                    StompMessageEncoderDecoder::new,
-                    connections
+                numOfThreads,
+                port,
+                () -> new StompMessagingProtocolImpl(),
+                () -> new StompMessageEncoderDecoder()
             ).serve();
-
-        } else {
+        } 
+        else {
             System.out.println("Unknown server type. Use 'tpc' or 'reactor'.");
         }
     }

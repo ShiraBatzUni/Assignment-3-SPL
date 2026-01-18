@@ -24,15 +24,14 @@ public interface Server<T> extends Closeable {
      */
 
     
-    public static <T> Server<T> threadPerClient(
+      public static <T> Server<T>  threadPerClient(
             int port,
-            Supplier<StompMessagingProtocol<T>> protocolFactory,
-            Supplier<MessageEncoderDecoder<T>> encoderDecoderFactory,
-            Connections<T> connections) {
+            Supplier<StompMessagingProtocol<T> > protocolFactory,
+            Supplier<MessageEncoderDecoder<T> > encoderDecoderFactory) {
 
-        return new BaseServer<T>(port, protocolFactory, encoderDecoderFactory, connections) {
+        return new BaseServer<T>(port, protocolFactory, encoderDecoderFactory) {
             @Override
-            protected void execute(BlockingConnectionHandler<T> handler) {
+            protected void execute(BlockingConnectionHandler<T>  handler) {
                 new Thread(handler).start();
             }
         };
@@ -49,12 +48,14 @@ public interface Server<T> extends Closeable {
      * @param <T>                   The Message Object for the protocol
      * @return A new reactor server
      */
-    public static <T> Server<T> reactor(
+    
+     public static <T> Server<T> reactor(
             int nthreads,
             int port,
             Supplier<StompMessagingProtocol<T>> protocolFactory,
-            Supplier<MessageEncoderDecoder<T>> encoderDecoderFactory, Connections<T> connections) {
-        return new Reactor<T>(nthreads, port, protocolFactory, encoderDecoderFactory, connections);
+            Supplier<MessageEncoderDecoder<T>> encoderDecoderFactory) {
+        return new Reactor<T>(nthreads, port, protocolFactory, encoderDecoderFactory);
     }
+
 
 }

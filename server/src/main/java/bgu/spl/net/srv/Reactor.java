@@ -12,6 +12,7 @@ import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 public class Reactor<T> implements Server<T> {
@@ -21,8 +22,8 @@ public class Reactor<T> implements Server<T> {
     private final Supplier<MessageEncoderDecoder<T>> readerFactory;
     private final ActorThreadPool pool;
     private Selector selector;
-    private final Connections<T> connections;
-    private int idCounter;
+    private final ConnectionsImpl<T> connections;
+    private final AtomicInteger idCounter;
     private Thread selectorThread;
     private final ConcurrentLinkedQueue<Runnable> selectorTasks = new ConcurrentLinkedQueue<>();
 
@@ -30,15 +31,14 @@ public class Reactor<T> implements Server<T> {
             int numThreads,
             int port,
             Supplier<StompMessagingProtocol<T>> protocolFactory,
-            Supplier<MessageEncoderDecoder<T>> readerFactory,
-        Connections<T> connections) {
+            Supplier<MessageEncoderDecoder<T>> readerFactory) {
 
         this.pool = new ActorThreadPool(numThreads);
         this.port = port;
         this.protocolFactory = protocolFactory;
         this.readerFactory = readerFactory;
-        this.connections = connections;
-        idCounter = 0;
+        connections = new ConnectionsImpl<>();
+        idCounter = new AtomicInteger(0);
     }
 
     @Override
@@ -103,15 +103,17 @@ public class Reactor<T> implements Server<T> {
         clientChan.configureBlocking(false);
         StompMessagingProtocol<T> protocol = protocolFactory.get();
 
-    if (protocol instanceof StompMessagingProtocol) {
-        ((StompMessagingProtocol<T>) protocol).start(idCounter, connections);
-    }
-    NonBlockingConnectionHandler<T> handler = new NonBlockingConnectionHandler<>(
-           readerFactory.get(), protocol, clientChan, this);
-        ((ConnectionsImpl<T>)connections).addConnection(idCounter, handler);
-        idCounter++;
+        final NonBlockingConnectionHandler<T> handler = new NonBlockingConnectionHandler<>(
+                readerFactory.get(),
+                protocol,
+                clientChan,
+                this);
 
-        clientChan.register(selector, SelectionKey.OP_READ, handler);
+       clientChan.register(selector, SelectionKey.OP_READ, handler);
+        
+        int connectionId = idCounter.getAndIncrement();
+        connections.addConnection(connectionId, handler);
+        pool.submit(handler, () -> protocol.start(connectionId, connections));
     }
 
     private void handleReadWrite(SelectionKey key) {

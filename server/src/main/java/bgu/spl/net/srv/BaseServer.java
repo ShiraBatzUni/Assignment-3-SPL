@@ -7,6 +7,7 @@ import bgu.spl.net.impl.stomp.ConnectionsImpl;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 public abstract class BaseServer<T> implements Server<T> {
@@ -15,20 +16,20 @@ public abstract class BaseServer<T> implements Server<T> {
     private final Supplier<StompMessagingProtocol<T>> protocolFactory;
     private final Supplier<MessageEncoderDecoder<T>> encdecFactory;
     private ServerSocket sock;
-    private final Connections<T> connections;
-    private int idCounter;
+    private final ConnectionsImpl<T> connections;
+     private AtomicInteger idCounter;
 
     public BaseServer(
             int port,
             Supplier<StompMessagingProtocol<T>> protocolFactory,
-            Supplier<MessageEncoderDecoder<T>> encdecFactory, Connections<T> connections) {
+            Supplier<MessageEncoderDecoder<T>> encdecFactory) {
 
         this.port = port;
         this.protocolFactory = protocolFactory;
         this.encdecFactory = encdecFactory;
 		this.sock = null;
-        this.connections = connections;
-        this.idCounter = 0;
+        this.connections = new ConnectionsImpl<>();
+        this.idCounter = new AtomicInteger(0);
     }
 
     @Override
@@ -43,24 +44,21 @@ public abstract class BaseServer<T> implements Server<T> {
 
                 Socket clientSock = serverSock.accept();
                 StompMessagingProtocol<T> protocol = protocolFactory.get();
-                
-                if (protocol instanceof StompMessagingProtocol) {
-                    ((StompMessagingProtocol<T>) protocol).start(idCounter, connections);
-                }
-
+                MessageEncoderDecoder<T> encdec = encdecFactory.get();
                 BlockingConnectionHandler<T> handler = new BlockingConnectionHandler<>(
                         clientSock,
-                        encdecFactory.get(),
+                        encdec,
                         protocol); 
 
-                ((ConnectionsImpl<T>)connections).addConnection(idCounter, handler);
-                idCounter++;
+                int tempId = idCounter.getAndIncrement();
+                connections.addConnection(tempId, handler);
+                protocol.start(tempId, connections);
                 execute(handler);
             }
         } catch (IOException ex) {
         }
 
-        System.out.println("server closed!!!");
+        System.out.println("server closed");
     }
 
     @Override
