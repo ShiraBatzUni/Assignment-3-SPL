@@ -1,27 +1,31 @@
 CFLAGS:=-c -Wall -Weffc++ -g -std=c++11 -Iinclude
 LDFLAGS:=-lboost_system -lpthread
 
-all: EchoClient
+# יעד ברירת מחדל
+all: bin/StompWCIClient
 
-EchoClient: bin/ConnectionHandler.o bin/echoClient.o
-	g++ -o bin/EchoClient bin/ConnectionHandler.o bin/echoClient.o $(LDFLAGS)
+# יצירת קובץ ההרצה - Linking
+bin/StompWCIClient: obj/StompClient.o obj/ConnectionHandler.o obj/StompProtocol.o obj/event.o
+	@mkdir -p bin
+	g++ -o bin/StompWCIClient obj/StompClient.o obj/ConnectionHandler.o obj/StompProtocol.o obj/event.o $(LDFLAGS)
 
-StompWCIClient: bin/ConnectionHandler.o bin/StompClient.obin/event.o
-	g++ -o bin/StompWCIClient bin/ConnectionHandler.o bin/StompClient.o $(LDFLAGS)
+# קומפילציה של הקבצים הבודדים - Compilation
+obj/StompClient.o: src/StompClient.cpp
+	@mkdir -p obj
+	g++ $(CFLAGS) -o obj/StompClient.o src/StompClient.cpp
 
-bin/ConnectionHandler.o: src/ConnectionHandler.cpp
-	g++ $(CFLAGS) -o bin/ConnectionHandler.o src/ConnectionHandler.cpp
+obj/ConnectionHandler.o: src/ConnectionHandler.cpp
+	@mkdir -p obj
+	g++ $(CFLAGS) -o obj/ConnectionHandler.o src/ConnectionHandler.cpp
 
-bin/echoClient.o: src/echoClient.cpp
-	g++ $(CFLAGS) -o bin/echoClient.o src/echoClient.cpp
+obj/StompProtocol.o: src/StompProtocol.cpp
+	@mkdir -p obj
+	g++ $(CFLAGS) -o obj/StompProtocol.o src/StompProtocol.cpp
 
-bin/event.o: src/event.cpp
-	g++ $(CFLAGS) -o bin/event.o src/event.cpp
-
-bin/StompClient.o: src/StompClient.cpp
-	g++ $(CFLAGS) -o bin/StompClient.o src/StompClient.cpp
+obj/event.o: src/event.cpp
+	@mkdir -p obj
+	g++ $(CFLAGS) -o obj/event.o src/event.cpp
 
 .PHONY: clean
 clean:
-	rm -f bin/*
-	
+	rm -rf bin/* obj/*

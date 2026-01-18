@@ -17,17 +17,24 @@ private:
     int receiptIdCounter;
     int disconnectReceiptId;
     bool shouldTerminate;
-    
     string userName;
     map<string, int> topicToSubId;
 
-    void disconnect();
+    public:
+    StompProtocol(); // הוספת הצהרה על בנאי ברירת המחדל
+    virtual ~StompProtocol();
+
+    StompProtocol(const StompProtocol&) = delete;
+    
+    StompProtocol& operator=(const StompProtocol&) = delete;
+    // ... שאר המתודות
+
+    
 
 public:
-    StompProtocol();
-    ~StompProtocol();
 
     bool connect(string host, short port, string user, string pass);
+    void disconnect();
 
     // הלולאה שרצה ב-Thread הנפרד ומאזינה להודעות מהשרת
     void runSocketListener();

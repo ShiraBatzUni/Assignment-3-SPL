@@ -1,82 +1,61 @@
-#include <stdlib.h>
-#include <iostream>
-#include <thread>
-#include <vector>
-#include <string>
-#include <sstream>
 #include "../include/StompProtocol.h"
+#include "../include/event.h"
+#include <sstream>
+#include <iostream>
 
-using namespace std;
+StompProtocol::StompProtocol() : 
+    connectionHandler(nullptr), 
+    isConnected(false), 
+    subIdCounter(0), 
+    receiptIdCounter(0), 
+    disconnectReceiptId(-1), 
+    shouldTerminate(false), 
+    userName(""),
+    topicToSubId() // הוספת המפה לרשימת האתחול פותרת את האזהרה
+{
+}
 
-int main(int argc, char *argv[]) {
-    StompProtocol protocol;
-    while (true) {
-        // בדיקה האם צריך לסיים (למשל אחרי Logout או ניתוק מהשרת)
-        if (protocol.shouldTerminateClient()) {
-            break;
-        }
+StompProtocol::~StompProtocol() {
+    if (connectionHandler != nullptr) {
+        delete connectionHandler;
+        connectionHandler = nullptr;
+    }
+}
 
-        const short bufsize = 1024;
-        char buf[bufsize];
-        cin.getline(buf, bufsize);
-        string line(buf);
+bool StompProtocol::shouldTerminateClient() const {
+    return shouldTerminate;
+}
+
+// פונקציה למימוש פקודת ה-report מקובץ JSON [cite: 375]
+void StompProtocol::sendReport(std::string jsonFile) {
+    names_and_events nne = parseEventsFile(jsonFile); // שימוש בפרסר שסופק ב-event.cpp [cite: 514]
+    std::string channel = nne.team_a_name + "_" + nne.team_b_name;
+
+    for (const auto& event : nne.events) {
+        // בניית פריים SEND עבור כל אירוע [cite: 380, 381]
+        std::string frame = "SEND\ndestination:/" + channel + "\n\n";
+        frame += "user: " + userName + "\n";
+        frame += "team a: " + event.get_team_a_name() + "\n";
+        frame += "team b: " + event.get_team_b_name() + "\n";
+        frame += "event name: " + event.get_name() + "\n";
+        frame += "time: " + std::to_string(event.get_time()) + "\n";
+        // ... (המשך פירוט הסטטיסטיקות והתיאור לפי הפורמט בעמוד 16-17) [cite: 404]
         
-        // פירוק הפקודה למילים
-        stringstream ss(line);
-        string segment;
-        vector<string> args;
-        while(getline(ss, segment, ' ')) {
-            args.push_back(segment);
-        }
+        connectionHandler->sendFrame(frame);
+    }
+}
 
-        if (args.empty()) continue;
-        string command = args[0];
-
-        if (command == "login") {
-            if (args.size() >= 4) {
-                string hostPort = args[1];
-                string user = args[2];
-                string pass = args[3];
-                
-                // חילוץ Host ו-Port מהמחרוזת
-                size_t colonPos = hostPort.find(':');
-                if (colonPos == string::npos) {
-                    cout << "Invalid host:port" << endl;
-                    continue;
-                }
-                string host = hostPort.substr(0, colonPos);
-                short port = (short)stoi(hostPort.substr(colonPos + 1));
-
-                // ניסיון התחברות
-                if (protocol.connect(host, port, user, pass)) {
-                    cout << "Login successful" << endl;
-                    // הפעלת ה-Thread שמאזין לשרת ברקע
-                    thread socketThread(&StompProtocol::runSocketListener, &protocol);
-                    socketThread.detach(); 
-                }
-            } else {
-                cout << "Usage: login {host:port} {user} {pass}" << endl;
-            }
-        } 
-        else if (command == "join") {
-            if (args.size() > 1) protocol.sendJoin(args[1]);
-        }
-        else if (command == "exit") {
-            if (args.size() > 1) protocol.sendExit(args[1]);
-        }
-        else if (command == "report") {
-            if (args.size() > 1) protocol.sendReport(args[1]);
-        }
-        else if (command == "logout") {
-            protocol.sendLogout();
-            // הלולאה תמשיך לרוץ עד שה-Thread השני יקבל אישור וידליק את הדגל shouldTerminate
-        }
-        else if (command == "summary") {
-            cout << "Summary not implemented" << endl;
-        }
-        else {
-            cout << "Unknown command" << endl;
+void StompProtocol::runSocketListener() {
+    while (!shouldTerminate) {
+        std::string answer;
+        if (!connectionHandler->getFrame(answer)) break;
+        // הדפסת תשובת השרת ועיבוד MESSAGE או RECEIPT [cite: 344, 372]
+        std::cout << answer << std::endl;
+        
+        // בדיקה אם הגיע RECEIPT על Logout כדי לסגור את הלקוח [cite: 170, 479]
+        if (answer.find("RECEIPT") != std::string::npos && 
+            answer.find("receipt-id:" + std::to_string(disconnectReceiptId)) != std::string::npos) {
+            shouldTerminate = true;
         }
     }
-    return 0;
 }

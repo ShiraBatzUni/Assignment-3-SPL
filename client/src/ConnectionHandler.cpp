@@ -2,35 +2,32 @@
 
 using boost::asio::ip::tcp;
 
-using std::cin;
-using std::cout;
-using std::cerr;
-using std::endl;
-using std::string;
+ConnectionHandler::ConnectionHandler(std::string host, short port) : 
+    host_(host), port_(port), io_service_(), socket_(io_service_) {}
 
-ConnectionHandler::ConnectionHandler(string host, short port) : host_(host), port_(port), io_service_(),
-                                                                socket_(io_service_) {}
-
-ConnectionHandler::~ConnectionHandler() {
-	close();
-}
+ConnectionHandler::~ConnectionHandler() { close(); }
 
 bool ConnectionHandler::connect() {
-	std::cout << "Starting connect to "
-	          << host_ << ":" << port_ << std::endl;
-	try {
-		tcp::endpoint endpoint(boost::asio::ip::address::from_string(host_), port_); // the server endpoint
-		boost::system::error_code error;
-		socket_.connect(endpoint, error);
-		if (error)
-			throw boost::system::system_error(error);
-	}
-	catch (std::exception &e) {
-		std::cerr << "Connection failed (Error: " << e.what() << ')' << std::endl;
-		return false;
-	}
-	return true;
+    try {
+        tcp::endpoint endpoint(boost::asio::ip::address::from_string(host_), port_);
+        socket_.connect(endpoint);
+    } catch (std::exception& e) {
+        return false;
+    }
+    return true;
 }
+
+// קריאת פריים שלם עד לתו ה-null 
+bool ConnectionHandler::getFrame(std::string& frame) {
+    return getFrameAscii(frame, '\0'); 
+}
+
+// שליחת פריים עם תו null בסופו כנדרש בפרוטוקול 
+bool ConnectionHandler::sendFrame(std::string& frame) {
+    return sendBytes(frame.c_str(), frame.length()) && sendBytes("\0", 1);
+}
+
+// מימוש שאר המתודות (getBytes, sendBytes, וכו') כפי שמופיעות ב-Header
 
 bool ConnectionHandler::getBytes(char bytes[], unsigned int bytesToRead) {
 	size_t tmp = 0;
