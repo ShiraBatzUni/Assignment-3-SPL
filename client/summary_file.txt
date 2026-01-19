@@ -1,0 +1,20 @@
+Germany vs Japan
+Game stats:
+General stats:
+    active: true
+    before halftime: true
+Team a stats:
+Team b stats:
+Game event reports:
+0 - kickoff:
+
+The game has started! What an exciting evening!
+
+1980 - goal!!!!:
+
+GOOOAAALLL!!! Germany lead!!! Gundogan finally has success in the box as he steps up to take the penalty, sends Gonda the wrong way, and slots the ball into the left-hand corner to put Germany 1-0 up! A needless penalty to concede from Japan's point of view, and after a bright start, the Samurai Blues trail!
+
+2940 - Another goal!!!!:
+
+BALL IN THE NET!!! Germany think they've doubled their lead following a brilliant passage of play, but there looks to an issue of offside as Havertz wheels away! Muller's cross from the right is headed away to Kimmich, who hits a low shot towards the bottom corner Gonda sees it late and parries it away, but Gnabry drills the ball back across the face and Havertz taps it in! The goal is given initially, but no doubt we'll be going upstairs for a second look---
+

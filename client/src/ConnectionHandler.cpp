@@ -17,17 +17,32 @@ bool ConnectionHandler::connect() {
     return true;
 }
 
-// קריאת פריים שלם עד לתו ה-null 
-bool ConnectionHandler::getFrame(std::string& frame) {
-    return getFrameAscii(frame, '\0'); 
-}
+// src/ConnectionHandler.cpp
 
-// שליחת פריים עם תו null בסופו כנדרש בפרוטוקול 
 bool ConnectionHandler::sendFrame(std::string& frame) {
-    return sendBytes(frame.c_str(), frame.length()) && sendBytes("\0", 1);
+    if (frame.empty() || frame.back() != '\0') {
+        frame.push_back('\0'); // הגנה כפולה
+    }
+    try {
+        boost::system::error_code error;
+        // שליחת האורך המלא כולל ה-NULL שהוספנו
+        boost::asio::write(socket_, boost::asio::buffer(frame.c_str(), frame.length()), error);
+        return !error;
+    } catch (...) { return false; }
 }
 
-// מימוש שאר המתודות (getBytes, sendBytes, וכו') כפי שמופיעות ב-Header
+bool ConnectionHandler::getFrame(std::string& frame) {
+    try {
+        boost::asio::streambuf buffer;
+        boost::system::error_code error;
+        // קריאה עד ה-NULL - קריטי ל-Reactor
+        boost::asio::read_until(socket_, buffer, '\0', error); 
+        if (error) return false;
+        std::istream is(&buffer);
+        std::getline(is, frame, '\0'); 
+        return true;
+    } catch (...) { return false; }
+}
 
 bool ConnectionHandler::getBytes(char bytes[], unsigned int bytesToRead) {
 	size_t tmp = 0;

@@ -11,10 +11,13 @@ the methods below.
 import socket
 import sys
 import threading
+import sqlite3
 
 
 SERVER_NAME = "STOMP_PYTHON_SQL_SERVER"  # DO NOT CHANGE!
 DB_FILE = "stomp_server.db"              # DO NOT CHANGE!
+
+
 
 
 def recv_null_terminated(sock: socket.socket) -> str:
@@ -30,39 +33,67 @@ def recv_null_terminated(sock: socket.socket) -> str:
 
 
 def init_database():
-    pass
-
+    conn = sqlite3.connect(DB_FILE)  #
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT)''')
+    conn.commit()
+    conn.close()
 
 def execute_sql_command(sql_command: str) -> str:
-    return "done"
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute(sql_command)
+        conn.commit()
+        conn.close()
+        return "done"
+    except Exception as e:
+        return f"error: {str(e)}"
 
 
 def execute_sql_query(sql_query: str) -> str:
-    return "done"
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute(sql_query)
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            return str(result[0])
+        return "not_found"
+    except Exception as e:
+        return f"error: {str(e)}"
 
 
 def handle_client(client_socket: socket.socket, addr):
-    print(f"[{SERVER_NAME}] Client connected from {addr}")
-
+    print(f"[{SERVER_NAME}] Connected to Java server at {addr}")
     try:
         while True:
-            message = recv_null_terminated(client_socket)
-            if message == "":
-                break
-
-            print(f"[{SERVER_NAME}] Received:")
-            print(message)
-
-            client_socket.sendall(b"done\0")
-
+            data = b""
+            while True:
+                chunk = client_socket.recv(1024)
+                if not chunk: break
+                data += chunk
+                if b"\0" in data: break
+            
+            if not data: break
+            
+            query = data.decode("utf-8").strip("\0")
+            print(f"[{SERVER_NAME}] Executing: {query}")
+            
+            if query.upper().startswith("SELECT"):
+                response = execute_sql_query(query)
+            else:
+                response = execute_sql_command(query)
+            
+            # שורה זו חייבת להיות באותו קו עם ה-if שמעליה!
+            client_socket.sendall((response + "\0").encode("utf-8"))
+            
     except Exception as e:
-        print(f"[{SERVER_NAME}] Error handling client {addr}: {e}")
+        print(f"[{SERVER_NAME}] Connection error with {addr}: {e}")
     finally:
-        try:
-            client_socket.close()
-        except Exception:
-            pass
-        print(f"[{SERVER_NAME}] Client {addr} disconnected")
+        # ה-finally חייב להיות מיושר עם ה-try וה-except!
+        client_socket.close()
 
 
 def start_server(host="127.0.0.1", port=7778):

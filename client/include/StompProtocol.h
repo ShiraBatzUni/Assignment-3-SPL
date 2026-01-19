@@ -9,35 +9,54 @@ using std::string;
 using std::vector;
 using std::map;
 
+// מבנה נתונים פנימי לשמירת אירועים שהתקבלו
+struct GameEventReport {
+    std::string user;
+    std::string eventName;
+    std::string time;
+    std::string teamA;
+    std::string teamB;
+    std::string description; // השורה החסרה שגורמת לשגיאה
+    std::map<std::string, std::string> updates;
+
+    GameEventReport() : 
+        user(""), 
+        eventName(""), 
+        time(""), 
+        teamA(""), 
+        teamB(""), 
+        description(""),
+        updates() 
+    {}
+};
+
 class StompProtocol {
 private:
-    ConnectionHandler* connectionHandler;
+   ConnectionHandler* connectionHandler;
     bool isConnected;
     int subIdCounter;
     int receiptIdCounter;
     int disconnectReceiptId;
     bool shouldTerminate;
-    string userName;
-    map<string, int> topicToSubId;
-
+    std::string userName;
+    std::map<std::string, int> topicToSubId; // למעקב אחרי מנויים
+    // הדאטאבייס המקומי: מפה בין שם ערוץ לרשימת האירועים שנשמרו בו
+    std::map<std::string, std::vector<GameEventReport>> gameReports;
+    
     public:
-    StompProtocol(); // הוספת הצהרה על בנאי ברירת המחדל
+    StompProtocol();
     virtual ~StompProtocol();
-
     StompProtocol(const StompProtocol&) = delete;
-    
     StompProtocol& operator=(const StompProtocol&) = delete;
-    // ... שאר המתודות
 
-    
-
-public:
-
-    bool connect(string host, short port, string user, string pass);
+    bool connect(std::string host, short port, std::string user, std::string pass);
     void disconnect();
+    bool getIsConnected() const;
 
-    // הלולאה שרצה ב-Thread הנפרד ומאזינה להודעות מהשרת
-    void runSocketListener();
+    void runSocketListener(); // רץ בת'רד נפרד
+    void saveSummary(std::string gameName, std::string user, std::string fileName);
+    void processServerFrame(std::string frame); // מפרק הודעות מהשרת
+    bool shouldTerminateClient() const;
 
     // פונקציות לשליחת פקודות (מופעלות ע"י ה-Main)
     void sendJoin(string gameName);
@@ -45,6 +64,5 @@ public:
     void sendReport(string jsonFile);
     void sendLogout();
 
-    bool getIsConnected() const;
-    bool shouldTerminateClient() const;
+    
 };
