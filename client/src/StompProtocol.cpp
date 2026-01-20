@@ -3,7 +3,15 @@
 #include <iostream>
 #include <fstream>
 
-StompProtocol::StompProtocol() : connectionHandler(nullptr), connected(false), shouldTerminate(false), gameReports(), pendingReceipts() {}
+StompProtocol::StompProtocol() 
+    : receiptCounter(0),            // 1. ראשון ב-Header
+      pendingReceipts(),            // 2. שני
+      topicIds(),                   // 3. שלישי
+      connectionHandler(nullptr),    // 4. רביעי
+      currentUser(""),              // 5. חמישי (חדש)
+      connected(false),             // 6. שישי
+      shouldTerminate(false),       // 7. שביעי
+      gameReports() {}              // 8. שמיני
 
 StompProtocol::~StompProtocol() { if (connectionHandler) delete connectionHandler; }
 
@@ -11,30 +19,38 @@ bool StompProtocol::connect(std::string host, short port, std::string user, std:
     if (connectionHandler) delete connectionHandler;
     connectionHandler = new ConnectionHandler(host, port);
 
-    if (!connectionHandler->connect()) return false;
+    if (!connectionHandler->connect()) {
+        std::cout << "Could not connect to server" << std::endl;
+        return false;
+    }
 
-    // בניית פריים CONNECT תקין עבור השרת המעודכן
-    std::string frame =
-        "CONNECT\n"
-        "accept-version:1.2\n"
-        "host:" + host + "\n"
-        "login:" + user + "\n"
-        "passcode:" + pass + "\n\n";
+    // פריים CONNECT תקני לפי עמוד 3
+    std::string frame = "CONNECT\n"
+                        "accept-version:1.2\n"
+                        "host:stomp.cs.bgu.ac.il\n"
+                        "login:" + user + "\n"
+                        "passcode:" + pass + "\n"
+                        "\n";
 
     connectionHandler->sendFrame(frame);
 
     std::string response;
-    // getFrame קורא עד לתו ה-NULL ששלח השרת (response + "\0")
     if (!connectionHandler->getFrame(response)) return false;
 
-    // השרת מחזיר פריים CONNECTED
+    // הדפסת הפריים שהתקבל לפי הדרישה
+    std::cout << "\nFrame received from server:\n---\n" << response << "\n---\n" << std::endl;
+
     if (response.find("CONNECTED") != std::string::npos) {
         connected = true;
         std::cout << "Login successful" << std::endl;
         return true;
     }
-
-    std::cout << "Login failed: " << response << std::endl;
+    
+    // טיפול בשגיאות (סיסמה שגויה או משתמש מחובר)
+    if (response.find("User already logged in") != std::string::npos) std::cout << "User already logged in" << std::endl;
+    else if (response.find("Wrong password") != std::string::npos) std::cout << "Wrong password" << std::endl;
+    else std::cout << "Login failed" << std::endl;
+    
     return false;
 }
 
@@ -69,23 +85,59 @@ std::string StompProtocol::processKeyboardCommand(const std::string& input) {
 }
 
 void StompProtocol::processServerFrame(const std::string& frame) {
-    std::string cmd, body;
+    std::string command, body;
     std::unordered_map<std::string, std::string> headers;
-    parseFrame(frame, cmd, headers, body);
+    parseFrame(frame, command, headers, body);
 
-    if (cmd == "MESSAGE") {
-        // תיקון: שליפה מהמפה עם מפתח במקום הצבת המפה למחרוזת
-        std::string dest = headers.count("destination") ? headers.at("destination") : "unknown";
-        std::stringstream ss(body);
-        processMessageBody(ss, dest);
+    if (command == "RECEIPT") {
+        int rId = std::stoi(headers["receipt-id"]);
+        if (pendingReceipts.count(rId)) {
+            std::string action = pendingReceipts[rId];
+            std::cout << action << std::endl;
+            if (action == "Logout") {
+                connected = false;
+                shouldTerminate = true; // עוצר את הלולאה ומונע את שגיאות ה-recv
+                if (connectionHandler) connectionHandler->close();
+            }
+            pendingReceipts.erase(rId);
+        }
     } 
-    else if (cmd == "ERROR") {
-        shouldTerminate = true;
+    else if (command == "MESSAGE") {
+        // ה-destination ב-MESSAGE קובע לאיזה משחק לשייך את הדיווח
+        handleMessageFrame(headers["destination"], body);
     }
-    else if (frame.find("done") != std::string::npos || frame.find("error") != std::string::npos) {
-        // טיפול בתשובות SQL משרת ה-Python
-        std::cout << "[SQL Server Response]: " << frame << std::endl;
+}
+
+void StompProtocol::handleMessageFrame(std::string topic, std::string body) {
+    std::stringstream ss(body);
+    std::string line;
+    GameEventReport report;
+    
+    // קריאת גוף ההודעה לפי הפורמט בעמוד 16
+    while (std::getline(ss, line) && !line.empty()) {
+        if (line.find("user: ") == 0) report.user = line.substr(6);
+        else if (line.find("team a: ") == 0) report.teamA = line.substr(8);
+        else if (line.find("team b: ") == 0) report.teamB = line.substr(8);
+        else if (line.find("event name: ") == 0) report.eventName = line.substr(12);
+        else if (line.find("time: ") == 0) report.time = std::stoi(line.substr(6));
+        else if (line.find("description:") == 0) {
+            std::string desc;
+            while (std::getline(ss, line)) desc += line + "\n";
+            report.description = desc;
+        }
+        else {
+            // עיבוד עדכונים סטטיסטיים (goals, possession וכו')
+            size_t pos = line.find(':');
+            if (pos != std::string::npos) {
+                std::string key = line.substr(0, pos);
+                std::string val = line.substr(pos + 1);
+                if (key[0] == ' ') key.erase(0, 1);
+                if (val[0] == ' ') val.erase(0, 1);
+                report.updates[key] = val;
+            }
+        }
     }
+    gameReports[topic].push_back(report);
 }
 
 void StompProtocol::processMessageBody(std::stringstream& bodyStream, std::string destination) {
@@ -113,11 +165,19 @@ void StompProtocol::processMessageBody(std::stringstream& bodyStream, std::strin
     gameReports[destination].push_back(report);
 }
 
-// מימוש שאר המתודות הפנימיות...
 void StompProtocol::runSocketListener() {
+    if (!connected || shouldTerminate) return; // בדיקה לפני קריאה
+
     std::string frame;
     if (connectionHandler && connectionHandler->getFrame(frame)) {
-        processServerFrame(frame);
+        if (!frame.empty()) {
+            std::cout << "\nFrame received from server:\n---\n" << frame << "\n---\n" << std::endl;
+            processServerFrame(frame);
+        }
+    } else {
+        // אם getFrame נכשל, הסוקט כנראה נסגר - עוצרים את המאזין
+        connected = false;
+        shouldTerminate = true;
     }
 }
 
@@ -128,14 +188,15 @@ void StompProtocol::sendJoin(std::string game) {
     if (connectionHandler && connected) {
         int rId = receiptCounter++;
         std::string topic = (game[0] == '/') ? game : "/" + game;
-        
+        topicIds[1] = topic; // שמירת ה-ID לזיהוי MESSAGE [cite: 147-152]
+
         std::string stompFrame = "SUBSCRIBE\n"
                                  "destination:" + topic + "\n"
                                  "id:1\n"
-                                 "receipt:" + std::to_string(rId) + "\n"
+                                 "receipt:" + std::to_string(rId) + "\n" // קריטי לקבלת פריים חזרה
                                  "\n";
         
-        pendingReceipts[rId] = "Joined " + topic;
+        pendingReceipts[rId] = "Joined channel " + game;
         connectionHandler->sendFrame(stompFrame);
     }
 }
@@ -143,19 +204,15 @@ void StompProtocol::sendJoin(std::string game) {
 void StompProtocol::sendLogout() {
     if (connectionHandler && connected) {
         int rId = receiptCounter++;
-        
-        // פריים DISCONNECT תקני
         std::string frame = "DISCONNECT\n"
-                            "receipt:" + std::to_string(rId) + "\n"
+                            "receipt:" + std::to_string(rId) + "\n" // קריטי לסגירה נקייה [cite: 164-165, 485]
                             "\n";
         
         pendingReceipts[rId] = "Logout";
         connectionHandler->sendFrame(frame);
-        
-        // הערה: ה-connected וה-shouldTerminate יתעדכנו ב-processServerFrame 
-        // ברגע שתתקבל הודעת ה-RECEIPT מהשרת.
     }
 }
+
 
 void StompProtocol::parseFrame(const std::string& frame, std::string& command, std::unordered_map<std::string, std::string>& headers, std::string& body) {
     std::istringstream input(frame);
@@ -171,90 +228,60 @@ void StompProtocol::parseFrame(const std::string& frame, std::string& command, s
 
 void StompProtocol::saveSummary(std::string game, std::string user, std::string file) {
     std::string topic = (game[0] == '/') ? game : "/" + game;
-    
-    if (gameReports.find(topic) == gameReports.end()) {
-        std::cout << "No reports found for topic: " << topic << std::endl;
-        return;
-    }
-
     std::ofstream outFile(file);
     if (!outFile.is_open()) return;
 
-    // 1. כותרת המשחק
     size_t underscore = game.find('_');
-    std::string teamA = game.substr(0, underscore);
-    if (teamA[0] == '/') teamA.erase(0, 1);
-    std::string teamB = (underscore != std::string::npos) ? game.substr(underscore + 1) : "Unknown";
+    std::string tA = game.substr(0, underscore);
+    if (tA[0] == '/') tA.erase(0,1);
+    std::string tB = game.substr(underscore + 1);
+    
+    outFile << tA << " vs " << tB << "\nGame stats:\nGeneral stats:\n";
 
-    outFile << teamA << " vs " << teamB << "\n";
-    outFile << "Game stats:\n";
-
-    // 2. אגרגציה של סטטיסטיקות (שימוש בערך האחרון שדווח)
-    std::map<std::string, std::string> generalStats, teamAStats, teamBStats;
-    std::vector<GameEventReport> eventsToPrint;
-
-    for (const auto& report : gameReports[topic]) {
+    std::map<std::string, std::string> stats; // Map ממיין אוטומטית לפי ABC 
+    for (auto& report : gameReports[topic]) {
         if (report.user == user) {
-            eventsToPrint.push_back(report);
-            // העתקת העדכונים מהמפה המקומית
-            for (auto const& x : report.updates) {
-                // לוגיקה למיון הסטטיסטיקות לפי הקבוצה המדווחת
-                if (report.teamA == teamA) teamAStats[x.first] = x.second;
-                else if (report.teamA == teamB) teamBStats[x.first] = x.second;
-                else generalStats[x.first] = x.second;
+            for (auto const& it : report.updates) {
+                stats[it.first] = it.second;
             }
         }
     }
 
-    // 3. כתיבת הסטטיסטיקות לפי הפורמט המדויק
-    outFile << "General stats:\n";
-    for (auto const& x : generalStats) outFile << "    " << x.first << ": " << x.second << "\n";
-    
-    outFile << teamA << " stats:\n";
-    for (auto const& x : teamAStats) outFile << "    " << x.first << ": " << x.second << "\n";
-    
-    outFile << teamB << " stats:\n";
-    for (auto const& x : teamBStats) outFile << "    " << x.first << ": " << x.second << "\n";
-
-    // 4. יומן אירועים כרונולוגי
-    outFile << "Game event reports:\n";
-    for (const auto& r : eventsToPrint) {
-        outFile << r.time << " - " << r.eventName << ":\n\n";
-        outFile << r.description << "\n\n";
+    for (auto const& it : stats) {
+        outFile << "    " << it.first << ": " << it.second << "\n";
     }
 
+    outFile << "Game event reports:\n";
+    for (auto& report : gameReports[topic]) {
+        if (report.user == user) {
+            outFile << report.time << " - " << report.eventName << ":\n\n" << report.description << "\n\n";
+        }
+    }
     outFile.close();
-    std::cout << "Summary file created successfully: " << file << std::endl;
 }
 
 void StompProtocol::sendReport(std::string path) {
-    // קריאת הקובץ לתוך המבנה הנכון
     names_and_events events_data = parseEventsFile(path); 
     
     for (const auto& ev : events_data.events) {
         std::string topic = "/" + ev.get_team_a_name() + "_" + ev.get_team_b_name();
 
-        // בניית גוף הודעת ה-STOMP
-        std::string body = "user:" + events_data.team_a_name + "\n"
-                           "team a:" + ev.get_team_a_name() + "\n"
-                           "team b:" + ev.get_team_b_name() + "\n"
-                           "event name:" + ev.get_name() + "\n"
-                           "time:" + std::to_string(ev.get_time()) + "\n"
-                           "description:" + ev.get_discription() + "\n";
+        // בניית גוף ההודעה (Body) בדיוק לפי הפורמט בעמוד 16 [cite: 382-401]
+        std::string body = "user: " + events_data.team_a_name + "\n"
+                           "team a: " + ev.get_team_a_name() + "\n"
+                           "team b: " + ev.get_team_b_name() + "\n"
+                           "event name: " + ev.get_name() + "\n"
+                           "time: " + std::to_string(ev.get_time()) + "\n"
+                           "description:\n" + ev.get_discription() + "\n";
 
-        // שליחת פריים SEND
+        // פריים SEND תקני [cite: 382-383]
         std::string stompFrame = "SEND\n"
                                  "destination:" + topic + "\n"
                                  "\n" + body;
+
         connectionHandler->sendFrame(stompFrame);
 
-        // שליחה מקבילה ל-SQL לשמירה בשרת ה-Python
-        std::string sql = "INSERT INTO events (user, team, eventType, time, description) VALUES ('"
-                          + events_data.team_a_name + "', '" + topic + "', '" + ev.get_name() + "', " 
-                          + std::to_string(ev.get_time()) + ", '" + ev.get_discription() + "')";
-        connectionHandler->sendFrame(sql);
-
-        // עדכון זיכרון מקומי ל-Summary
+        // שמירת האירוע בזיכרון המקומי לטובת פקודת ה-summary [cite: 378-379, 471]
         GameEventReport report;
         report.user = events_data.team_a_name;
         report.eventName = ev.get_name();
@@ -262,7 +289,6 @@ void StompProtocol::sendReport(std::string path) {
         report.description = ev.get_discription();
         report.teamA = ev.get_team_a_name();
         report.teamB = ev.get_team_b_name();
-        
         for (auto const& x : ev.get_game_updates()) report.updates[x.first] = x.second;
         for (auto const& x : ev.get_team_a_updates()) report.updates[x.first] = x.second;
         for (auto const& x : ev.get_team_b_updates()) report.updates[x.first] = x.second;

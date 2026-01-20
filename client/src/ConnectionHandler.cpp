@@ -37,25 +37,17 @@ bool ConnectionHandler::sendFrame(std::string& frame) {
  * משתמש ב-read_until כדי לקרוא את כל התוצאה עד לתו ה-NULL.
  */
 bool ConnectionHandler::getFrame(std::string& frame) {
+    char ch;
     try {
-        boost::asio::streambuf buffer;
-        boost::system::error_code error;
-        
-        // קריאה עד לתו ה-NULL שמסיים את תשובת ה-SQL
-        boost::asio::read_until(socket_, buffer, '\0', error); 
-        
-        if (error) {
-            return false;
+        frame.clear();
+        while (true) {
+            // קריאת בית אחד בכל פעם כדי לא לפספס את ה-NULL
+            if (!getBytes(&ch, 1)) return false;
+            if (ch == '\0') break; 
+            frame.append(1, ch);
         }
-
-        std::istream is(&buffer);
-        std::getline(is, frame, '\0'); 
-        
-        return true;
-    } catch (std::exception& e) {
-        std::cerr << "recv failed (Error: " << e.what() << ")" << std::endl;
-        return false;
-    }
+    } catch (std::exception& e) { return false; }
+    return true;
 }
 
 /**

@@ -21,6 +21,15 @@ struct GameEventReport {
 };
 
 class StompProtocol {
+   private:
+    int receiptCounter;
+    std::unordered_map<int, std::string> pendingReceipts;
+    std::unordered_map<int, std::string> topicIds; // מזהה מנוי -> שם הערוץ
+    ConnectionHandler* connectionHandler;
+    std::string currentUser; // לשמירת שם המשתמש הנוכחי לצורך ה-Summary
+    std::atomic<bool> connected;
+    std::atomic<bool> shouldTerminate;
+    std::map<std::string, std::vector<GameEventReport>> gameReports;
 public:
     StompProtocol();
     virtual ~StompProtocol();
@@ -36,18 +45,13 @@ public:
     void sendJoin(std::string game);
     void sendLogout();
     void sendReport(std::string path);
-    private:
-    int receiptCounter = 0;
-    std::unordered_map<int, std::string> pendingReceipts; // מזהה -> תיאור הפעולה
+   
 private:
     // פונקציות אלו חייבות להיות מוצהרות כדי למנוע את השגיאות ב-image_5b5dc4
+    void handleMessageFrame(std::string topic, std::string body);
     void processServerFrame(const std::string& frame);
     void processMessageBody(std::stringstream& bodyStream, std::string destination);
     void parseFrame(const std::string& frame, std::string& command, 
                     std::unordered_map<std::string, std::string>& headers, std::string& body);
 
-    ConnectionHandler* connectionHandler; 
-    std::atomic<bool> connected;
-    std::atomic<bool> shouldTerminate;
-    std::map<std::string, std::vector<GameEventReport>> gameReports;
 };
