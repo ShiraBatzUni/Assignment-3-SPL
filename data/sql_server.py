@@ -1,40 +1,33 @@
 #!/usr/bin/env python3
-"""
-Basic Python Server for STOMP Assignment – Stage 3.3
-
-IMPORTANT:
-DO NOT CHANGE the server name or the basic protocol.
-Students should EXTEND this server by implementing
-the methods below.
-"""
-
 import socket
 import sys
 import threading
 import sqlite3
 
+SERVER_NAME = "STOMP_PYTHON_SQL_SERVER"
+DB_FILE = "stomp_server.db"
 
-SERVER_NAME = "STOMP_PYTHON_SQL_SERVER"  # DO NOT CHANGE!
-DB_FILE = "stomp_server.db"              # DO NOT CHANGE!
-
-
-
+# מפה לניהול הרשמות: { topic: { client_socket: sub_id } }
+subscriptions = {}
+subscriptions_lock = threading.Lock()
 
 def recv_null_terminated(sock: socket.socket) -> str:
+    """קריאת פריים עד לתו ה-NULL כפי שנדרש ב-STOMP"""
     data = b""
     while True:
-        chunk = sock.recv(1024)
-        if not chunk:
+        try:
+            chunk = sock.recv(1024)
+            if not chunk:
+                return ""
+            data += chunk
+            if b"\0" in data:
+                msg, _ = data.split(b"\0", 1)
+                return msg.decode("utf-8", errors="replace")
+        except Exception:
             return ""
-        data += chunk
-        if b"\0" in data:
-            msg, _ = data.split(b"\0", 1)
-            return msg.decode("utf-8", errors="replace")
-
 
 def init_db():
-    # כל השורות כאן חייבות להיות עם הזחה של 4 רווחים ימינה
-    conn = sqlite3.connect('stomp_server.db')
+    conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -54,8 +47,7 @@ def init_db():
         )
     ''')
     conn.commit()
-    return conn
-
+    conn.close()
 
 def execute_sql_command(sql_command: str) -> str:
     try:
@@ -68,116 +60,110 @@ def execute_sql_command(sql_command: str) -> str:
     except Exception as e:
         return f"error: {str(e)}"
 
-
-def execute_sql_query(sql_query: str) -> str:
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute(sql_query)
-        result = cursor.fetchone()
-        conn.close()
-        if result:
-            return str(result[0])
-        return "not_found"
-    except Exception as e:
-        return f"error: {str(e)}"
-
 def parse_stomp_frame(frame: str):
+    """פירוק פריים STOMP לפקודה, כותרות וגוף"""
     lines = frame.split("\n")
-    command = lines[0]
-
+    if not lines or not lines[0]:
+        return None, {}, ""
+    
+    command = lines[0].strip()
     headers = {}
-    body = ""
-
     i = 1
-    while i < len(lines) and lines[i]:
+    while i < len(lines) and lines[i].strip():
         if ":" in lines[i]:
             k, v = lines[i].split(":", 1)
-            headers[k] = v
+            headers[k.strip()] = v.strip()
         i += 1
-
+    
     body = "\n".join(lines[i+1:])
     return command, headers, body
 
-
 def handle_client(client_socket: socket.socket, addr):
     print(f"[{SERVER_NAME}] Connected to client at {addr}")
-
     try:
         while True:
-            frame = recv_null_terminated(client_socket)
-            if not frame:
+            raw_frame = recv_null_terminated(client_socket)
+            if not raw_frame:
                 break
 
-            print(f"[{SERVER_NAME}] Received frame:\n{frame}")
+            command, headers, body = parse_stomp_frame(raw_frame)
+            if not command: continue
 
-            command, headers, body = parse_stomp_frame(frame)
+            print(f"[{SERVER_NAME}] Received {command} from {addr}")
 
-            # CONNECT
+            # --- CONNECT ---
             if command == "CONNECT":
+                # בגרסה פשוטה זו אנו מאשרים תמיד, ניתן להוסיף בדיקת משתמש ב-DB
                 response = "CONNECTED\nversion:1.2\n\n"
                 client_socket.sendall((response + "\0").encode("utf-8"))
 
-            # SUBSCRIBE
+            # --- SUBSCRIBE ---
             elif command == "SUBSCRIBE":
                 dest = headers.get("destination")
-                if dest:
+                sub_id = headers.get("id")
+                if dest and sub_id:
                     with subscriptions_lock:
-                        subscriptions.setdefault(dest, []).append(client_socket)
+                        if dest not in subscriptions:
+                            subscriptions[dest] = {}
+                        subscriptions[dest][client_socket] = sub_id
+                
+                # שליחת RECEIPT אם התבקש (הלקוח שלך מצפה לזה ב-Join)
+                if "receipt" in headers:
+                    receipt_id = headers["receipt"]
+                    res = f"RECEIPT\nreceipt-id:{receipt_id}\n\n"
+                    client_socket.sendall((res + "\0").encode("utf-8"))
 
-            # SEND
+            # --- SEND ---
             elif command == "SEND":
                 dest = headers.get("destination")
                 if dest:
-                    message = (
-                        "MESSAGE\n"
-                        f"destination:{dest}\n\n"
-                        f"{body}"
-                    )
+                    # בניית פריים MESSAGE להפצה
+                    message_frame = f"MESSAGE\nsubscription:0\ndestination:{dest}\n\n{body}"
                     with subscriptions_lock:
-                        for sock in subscriptions.get(dest, []):
-                            try:
-                                sock.sendall((message + "\0").encode("utf-8"))
-                            except:
-                                pass
+                        if dest in subscriptions:
+                            for sock in list(subscriptions[dest].keys()):
+                                try:
+                                    # עדכון ה-subscription ID הספציפי לכל לקוח
+                                    sub_id = subscriptions[dest][sock]
+                                    personalized_frame = message_frame.replace("subscription:0", f"subscription:{sub_id}")
+                                    sock.sendall((personalized_frame + "\0").encode("utf-8"))
+                                except:
+                                    del subscriptions[dest][sock]
 
-            # DISCONNECT
+            # --- DISCONNECT ---
             elif command == "DISCONNECT":
+                if "receipt" in headers:
+                    receipt_id = headers["receipt"]
+                    res = f"RECEIPT\nreceipt-id:{receipt_id}\n\n"
+                    client_socket.sendall((res + "\0").encode("utf-8"))
                 break
 
-            # fallback (SQL / garbage)
-            else:
-                result = execute_sql_command(frame)
+            # --- SQL FALLBACK ---
+            # אם הפריים הוא פקודת SQL ישירה (כמו ב-report של הלקוח שלך)
+            elif "INSERT" in command.upper() or "UPDATE" in command.upper():
+                result = execute_sql_command(raw_frame)
                 client_socket.sendall((result + "\0").encode("utf-8"))
 
     except Exception as e:
-        print(f"[{SERVER_NAME}] Error with {addr}: {e}")
-
+        print(f"[{SERVER_NAME}] Error: {e}")
     finally:
-        print(f"[{SERVER_NAME}] Disconnected from {addr}")
-        with subscriptions_lock:
-            for subs in subscriptions.values():
-                if client_socket in subs:
-                    subs.remove(client_socket)
         client_socket.close()
-
+        with subscriptions_lock:
+            for dest in subscriptions:
+                if client_socket in subscriptions[dest]:
+                    del subscriptions[dest][client_socket]
+        print(f"[{SERVER_NAME}] Disconnected {addr}")
 
 def start_server(port=7778):
     init_db()
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_socket.bind(('127.0.0.1', port))
-    server_socket.listen(5)
-
-    print(f"[{SERVER_NAME}] Server is running on 127.0.0.1:{port}")
-
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(('0.0.0.0', port))
+    server.listen(10)
+    print(f"[{SERVER_NAME}] Listening on port {port}...")
     while True:
-        client_sock, addr = server_socket.accept()
-        threading.Thread(
-            target=handle_client,
-            args=(client_sock, addr),
-            daemon=True
-        ).start()
+        client, addr = server.accept()
+        threading.Thread(target=handle_client, args=(client, addr), daemon=True).start()
 
 
 if __name__ == "__main__":
