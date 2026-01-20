@@ -1,62 +1,82 @@
 #include <iostream>
 #include <thread>
+#include <string>
 #include <sstream>
-#include <vector>
+#include <fstream>
 #include "../include/StompProtocol.h"
-
-using namespace std;
 
 int main(int argc, char *argv[]) {
     StompProtocol protocol;
-    thread socketThread;
 
-    while (true) {
-        if (protocol.shouldTerminateClient()) break;
+    // Thread שמאזין לשרת ברקע
+    std::thread socketThread([&protocol]() {
+        while (!protocol.shouldTerminateClient()) {
+            if (protocol.isConnectedToSocket()) {
+                protocol.runSocketListener();
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
 
-         if (protocol.isWaitingForReceipt()) {
-             std::this_thread::sleep_for(std::chrono::milliseconds(10)); 
-             continue;
-           }
+    while (!protocol.shouldTerminateClient()) {
+        std::string line;
+        if (!std::getline(std::cin, line) || line.empty()) continue;
 
-        string line;
-        if (!getline(cin, line)) break; 
-        
-        stringstream ss(line);
-        string command;
+        std::stringstream ss(line);
+        std::string command;
         ss >> command;
 
         if (command == "login") {
-            string hostPort, user, pass;
-            ss >> hostPort >> user >> pass;
-            
-            size_t colonPos = hostPort.find(':');
-            if (colonPos != string::npos) {
-                string host = hostPort.substr(0, colonPos);
-                short port = (short)stoi(hostPort.substr(colonPos + 1));
-
-                if (protocol.connect(host, port, user, pass)) {
-                    // הפעלת ת'רד האזנה ברקע
-                    socketThread = thread(&StompProtocol::runSocketListener, &protocol);
-                    socketThread.detach(); 
-                }
+            if (protocol.isConnectedToSocket()) {
+                std::cout << "The client is already logged in, log out before logging in again" << std::endl;
+                continue;
             }
-        } 
-        else if (command == "join") {
-            string gameName; ss >> gameName;
-            protocol.sendJoin(gameName);
-        } 
-        else if (command == "report") {
-            string jsonFile; ss >> jsonFile;
-            protocol.sendReport(jsonFile);
-        } 
+            std::string hostPort, user, pass;
+            if (!(ss >> hostPort >> user >> pass)) {
+                std::cout << "Usage: login {host:port} {user} {password}" << std::endl;
+                continue;
+            }
+            size_t colon = hostPort.find(':');
+            if (colon == std::string::npos) {
+                std::cout << "Invalid host:port format" << std::endl;
+                continue;
+            }
+            std::string host = hostPort.substr(0, colon);
+            short port = std::stoi(hostPort.substr(colon + 1));
+            protocol.connect(host, port, user, pass);
+        }
         else if (command == "summary") {
-            string gameName, user, fileName;
-            ss >> gameName >> user >> fileName;
-            protocol.saveSummary(gameName, user, fileName);
-        } 
+            std::string game, user, file;
+            if (!(ss >> game >> user >> file)) {
+                std::cout << "Usage: summary {game} {user} {file}" << std::endl;
+                continue;
+            }
+            protocol.saveSummary(game, user, file);
+        }
+        else if (!protocol.isConnectedToSocket()) {
+            std::cout << "Please login first" << std::endl;
+            continue;
+        }
+        else if (command == "join") {
+            std::string game;
+            if (!(ss >> game)) continue;
+            protocol.sendJoin(game);
+        }
+        else if (command == "report") {
+            std::string path;
+            if (!(ss >> path)) continue;
+            std::ifstream f(path);
+            if (!f.good()) {
+                std::cout << "File not found: " << path << std::endl;
+                continue;
+            }
+            protocol.sendReport(path);
+        }
         else if (command == "logout") {
             protocol.sendLogout();
         }
     }
+
+    if (socketThread.joinable()) socketThread.join();
     return 0;
 }
