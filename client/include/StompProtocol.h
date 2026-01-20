@@ -13,7 +13,7 @@ using std::map;
 struct GameEventReport {
     std::string user;
     std::string eventName;
-    std::string time;
+    int time;
     std::string teamA;
     std::string teamB;
     std::string description; // השורה החסרה שגורמת לשגיאה
@@ -22,7 +22,7 @@ struct GameEventReport {
     GameEventReport() : 
         user(""), 
         eventName(""), 
-        time(""), 
+        time(0), 
         teamA(""), 
         teamB(""), 
         description(""),
@@ -42,7 +42,9 @@ private:
     std::map<std::string, int> topicToSubId; // למעקב אחרי מנויים
     // הדאטאבייס המקומי: מפה בין שם ערוץ לרשימת האירועים שנשמרו בו
     std::map<std::string, std::vector<GameEventReport>> gameReports;
-    
+    std::map<int, std::string> receiptToCommand; // למיפוי ה-receipt לפעולה שבוצעה
+    bool waitingForReceipt;                      // לדגל חסימת קלט מהמשתמש
+   
     public:
     StompProtocol();
     virtual ~StompProtocol();
@@ -52,13 +54,13 @@ private:
     bool connect(std::string host, short port, std::string user, std::string pass);
     void disconnect();
     bool getIsConnected() const;
-
     void runSocketListener(); // רץ בת'רד נפרד
     void saveSummary(std::string gameName, std::string user, std::string fileName);
     void processServerFrame(std::string frame); // מפרק הודעות מהשרת
+    void processMessageBody(std::stringstream& bodyStream, std::string destination);
     bool shouldTerminateClient() const;
-
-    // פונקציות לשליחת פקודות (מופעלות ע"י ה-Main)
+    bool isWaitingForReceipt() const;
+  
     void sendJoin(string gameName);
     void sendExit(string gameName);
     void sendReport(string jsonFile);

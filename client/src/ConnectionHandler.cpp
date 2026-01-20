@@ -35,13 +35,23 @@ bool ConnectionHandler::getFrame(std::string& frame) {
     try {
         boost::asio::streambuf buffer;
         boost::system::error_code error;
-        // קריאה עד ה-NULL - קריטי ל-Reactor
+        
+        // קריאה מהסוקט עד להגעה לתו ה-NULL (0\) שמסיים כל פריים STOMP
         boost::asio::read_until(socket_, buffer, '\0', error); 
-        if (error) return false;
+        
+        if (error) {
+            return false;
+        }
+
+        // העברת התוכן מהבאפר למחרוזת וניקוי ה-NULL מהסוף
         std::istream is(&buffer);
         std::getline(is, frame, '\0'); 
+        
         return true;
-    } catch (...) { return false; }
+    } catch (std::exception& e) {
+        std::cerr << "recv failed (Error: " << e.what() << ")" << std::endl;
+        return false;
+    }
 }
 
 bool ConnectionHandler::getBytes(char bytes[], unsigned int bytesToRead) {

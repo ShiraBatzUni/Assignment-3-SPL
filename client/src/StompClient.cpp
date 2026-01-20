@@ -13,6 +13,11 @@ int main(int argc, char *argv[]) {
     while (true) {
         if (protocol.shouldTerminateClient()) break;
 
+         if (protocol.isWaitingForReceipt()) {
+             std::this_thread::sleep_for(std::chrono::milliseconds(10)); 
+             continue;
+           }
+
         string line;
         if (!getline(cin, line)) break; 
         
