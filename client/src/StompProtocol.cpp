@@ -87,24 +87,35 @@ std::string StompProtocol::processKeyboardCommand(const std::string& input) {
 void StompProtocol::processServerFrame(const std::string& frame) {
     std::string command, body;
     std::unordered_map<std::string, std::string> headers;
+    
+    // פירוק הפריים למרכיביו
     parseFrame(frame, command, headers, body);
 
     if (command == "RECEIPT") {
         int rId = std::stoi(headers["receipt-id"]);
         if (pendingReceipts.count(rId)) {
             std::string action = pendingReceipts[rId];
-            std::cout << action << std::endl;
+            
+            // אם קיבלנו אישור על Logout, מעדכנים דגלים כדי לסגור את הלקוח
             if (action == "Logout") {
                 connected = false;
-                shouldTerminate = true; // עוצר את הלולאה ומונע את שגיאות ה-recv
-                if (connectionHandler) connectionHandler->close();
+                shouldTerminate = true;
             }
             pendingReceipts.erase(rId);
         }
     } 
     else if (command == "MESSAGE") {
-        // ה-destination ב-MESSAGE קובע לאיזה משחק לשייך את הדיווח
-        handleMessageFrame(headers["destination"], body);
+        // זה החלק הקריטי לסמרי:
+        // השרת שולח את ה-destination (למשל /Germany_Japan) ב-Header
+        std::string topic = headers["destination"];
+        
+        // קריאה למתודה שמעבדת את גוף ההודעה ושומרת ב-gameReports
+        handleMessageFrame(topic, body);
+    }
+    else if (command == "ERROR") {
+        std::cout << "Server Error: " << headers["message"] << std::endl;
+        connected = false;
+        shouldTerminate = true;
     }
 }
 
@@ -113,7 +124,7 @@ void StompProtocol::handleMessageFrame(std::string topic, std::string body) {
     std::string line;
     GameEventReport report;
     
-    // קריאת גוף ההודעה לפי הפורמט בעמוד 16
+    // קריאת שורות גוף ההודעה לפי הפורמט בעמוד 16
     while (std::getline(ss, line) && !line.empty()) {
         if (line.find("user: ") == 0) report.user = line.substr(6);
         else if (line.find("team a: ") == 0) report.teamA = line.substr(8);
@@ -126,44 +137,76 @@ void StompProtocol::handleMessageFrame(std::string topic, std::string body) {
             report.description = desc;
         }
         else {
-            // עיבוד עדכונים סטטיסטיים (goals, possession וכו')
+            // טיפול בסטטיסטיקות (למשל "goals: 1") - שמירה במפה למיון ABC
             size_t pos = line.find(':');
             if (pos != std::string::npos) {
                 std::string key = line.substr(0, pos);
                 std::string val = line.substr(pos + 1);
-                if (key[0] == ' ') key.erase(0, 1);
-                if (val[0] == ' ') val.erase(0, 1);
+                // ניקוי רווחים מיותרים
+                if (!key.empty() && key[0] == ' ') key.erase(0, 1);
+                if (!val.empty() && val[0] == ' ') val.erase(0, 1);
                 report.updates[key] = val;
             }
         }
     }
+    // הוספת הדיווח לרשימת הדיווחים של המשחק הספציפי
     gameReports[topic].push_back(report);
 }
 
-void StompProtocol::processMessageBody(std::stringstream& bodyStream, std::string destination) {
+void StompProtocol::processMessageBody(std::stringstream& bodyStream,
+                                       std::string destination) {
     GameEventReport report;
     std::string line;
+
+    enum Section { META, UPDATES, DESCRIPTION };
+    Section section = META;
+
     while (std::getline(bodyStream, line)) {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        if (line.empty()) continue;
+
+        // sections
+        if (line.find("updates") != std::string::npos) {
+            section = UPDATES;
+            continue;
+        }
+        if (line == "description:" || line == "description :") {
+            section = DESCRIPTION;
+            continue;
+        }
+
         size_t pos = line.find(':');
         if (pos == std::string::npos) continue;
-        
+
         std::string key = line.substr(0, pos);
         std::string value = line.substr(pos + 1);
-        
-        if (key == "user") report.user = value;
-        else if (key == "team a") report.teamA = value;
-        else if (key == "team b") report.teamB = value;
-        else if (key == "event name") report.eventName = value;
-        else if (key == "time") report.time = std::stoi(value);
-        else if (key == "description") {
-            // התיאור עשוי להיות רב-שורתי
-            std::string desc;
-            while (std::getline(bodyStream, line)) desc += line + "\n";
-            report.description = desc;
+        if (!value.empty() && value[0] == ' ')
+            value.erase(0, 1);
+
+        if (section == META) {
+            if (key == "user") report.user = value;
+            else if (key == "team a") report.teamA = value;
+            else if (key == "team b") report.teamB = value;
+            else if (key == "event name") report.eventName = value;
+            else if (key == "time") report.time = std::stoi(value);
+        }
+        else if (section == UPDATES) {
+            report.updates[key] = value;   // 🔥 זה החלק הקריטי
+        }
+        else if (section == DESCRIPTION) {
+            report.description += line + "\n";
         }
     }
+
+    if (!report.description.empty() && report.description.back() == '\n')
+        report.description.pop_back();
+
     gameReports[destination].push_back(report);
 }
+
+
+
 
 void StompProtocol::runSocketListener() {
     if (!connected || shouldTerminate) return; // בדיקה לפני קריאה
@@ -226,39 +269,59 @@ void StompProtocol::parseFrame(const std::string& frame, std::string& command, s
 }
 
 
-void StompProtocol::saveSummary(std::string game, std::string user, std::string file) {
-    std::string topic = (game[0] == '/') ? game : "/" + game;
-    std::ofstream outFile(file);
-    if (!outFile.is_open()) return;
+void StompProtocol::saveSummary(std::string game,
+                                std::string user,
+                                std::string file) {
+    std::string topic = "/" + game;
+    std::ofstream out(file);
 
-    size_t underscore = game.find('_');
-    std::string tA = game.substr(0, underscore);
-    if (tA[0] == '/') tA.erase(0,1);
-    std::string tB = game.substr(underscore + 1);
-    
-    outFile << tA << " vs " << tB << "\nGame stats:\nGeneral stats:\n";
+    size_t us = game.find('_');
+    std::string teamA = game.substr(0, us);
+    std::string teamB = game.substr(us + 1);
 
-    std::map<std::string, std::string> stats; // Map ממיין אוטומטית לפי ABC 
-    for (auto& report : gameReports[topic]) {
-        if (report.user == user) {
-            for (auto const& it : report.updates) {
-                stats[it.first] = it.second;
-            }
-        }
+    out << teamA << " vs " << teamB << "\n";
+    out << "Game stats:\n";
+
+    if (!gameReports.count(topic)) {
+        out << "General stats:\n";
+        out << "Game event reports:\n";
+        out.close();
+        return;
     }
 
-    for (auto const& it : stats) {
-        outFile << "    " << it.first << ": " << it.second << "\n";
+    // סינון לפי user
+    std::vector<GameEventReport> events;
+    for (const auto& e : gameReports[topic]) {
+        if (e.user == user)
+            events.push_back(e);
     }
 
-    outFile << "Game event reports:\n";
-    for (auto& report : gameReports[topic]) {
-        if (report.user == user) {
-            outFile << report.time << " - " << report.eventName << ":\n\n" << report.description << "\n\n";
-        }
+    // General stats = כל ה-updates האחרונים
+    std::map<std::string, std::string> stats;
+    for (const auto& e : events)
+        for (const auto& p : e.updates)
+            stats[p.first] = p.second;
+
+    out << "General stats:\n";
+    for (const auto& p : stats)
+        out << "    " << p.first << ": " << p.second << "\n";
+
+    out << "Game event reports:\n";
+
+    std::sort(events.begin(), events.end(),
+              [](const GameEventReport& a, const GameEventReport& b) {
+                  return a.time < b.time;
+              });
+
+    for (const auto& e : events) {
+        out << e.time << " - " << e.eventName << ":\n\n";
+        out << e.description << "\n\n";
     }
-    outFile.close();
+
+    out.close();
 }
+
+
 
 void StompProtocol::sendReport(std::string path) {
     names_and_events events_data = parseEventsFile(path); 
