@@ -1,0 +1,47 @@
+{
+  "team a": "Germany",
+  "team b": "Japan",
+  "events": [
+    {
+      "event name": "kickoff",
+      "time": 0,
+      "general game updates": {
+        "active": "true",
+        "before halftime": "true"
+      },
+      "team a updates": {},
+      "team b updates": {},
+      "description": "The game has started! What an exciting evening!"
+    },
+    {
+      "event name": "goal",
+      "time": 1980,
+      "general game updates": {
+        "score": "1-0"
+      },
+      "team a updates": {
+        "goals": "1",
+        "shots on target": "3"
+      },
+      "team b updates": {
+        "goals": "0",
+        "shots on target": "1"
+      },
+      "description": "GOOOAAALLL!!! Germany take the lead with a powerful strike."
+    },
+    {
+      "event name": "possession update",
+      "time": 2400,
+      "general game updates": {
+        "possession update": "mid-game"
+      },
+      "team a updates": {
+        "possession": "55%"
+      },
+      "team b updates": {
+        "possession": "45%"
+      },
+      "description": "Germany are controlling the midfield and keeping possession."
+    }
+  ]
+}

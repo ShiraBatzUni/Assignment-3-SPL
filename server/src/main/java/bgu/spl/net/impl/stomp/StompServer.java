@@ -18,16 +18,16 @@ public class StompServer {
         if (serverType.equals("tpc")) {
             Server.threadPerClient(
                 port,
-                () -> new StompMessagingProtocolImpl(), 
-                () -> new StompMessageEncoderDecoder()  
+                StompMessagingProtocolImpl::new, 
+                StompMessageEncoderDecoder::new
             ).serve();
         } 
         else if (serverType.equals("reactor")) { 
             Server.reactor(
                 numOfThreads,
                 port,
-                () -> new StompMessagingProtocolImpl(),
-                () -> new StompMessageEncoderDecoder()
+                StompMessagingProtocolImpl::new, 
+                StompMessageEncoderDecoder::new
             ).serve();
         } 
         else {

@@ -1,82 +1,95 @@
 #include <iostream>
 #include <thread>
-#include <string>
 #include <sstream>
-#include <fstream>
 #include "../include/StompProtocol.h"
 
-int main(int argc, char *argv[]) {
+int main() {
     StompProtocol protocol;
 
-    // Thread שמאזין לשרת ברקע
-    std::thread socketThread([&protocol]() {
-        while (!protocol.shouldTerminateClient()) {
-            if (protocol.isConnectedToSocket()) {
-                protocol.runSocketListener();
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-    });
+    std::thread socketListener;
+    bool listenerStarted = false;
 
-    while (!protocol.shouldTerminateClient()) {
-        std::string line;
-        if (!std::getline(std::cin, line) || line.empty()) continue;
+    std::string line;
+    while (std::getline(std::cin, line)) {
+        if (line.empty()) continue;
 
-        std::stringstream ss(line);
+        std::istringstream iss(line);
         std::string command;
-        ss >> command;
+        iss >> command;
 
         if (command == "login") {
             if (protocol.isConnectedToSocket()) {
-                std::cout << "The client is already logged in, log out before logging in again" << std::endl;
+                std::cout << "Already logged in. Logout first." << std::endl;
                 continue;
             }
+
             std::string hostPort, user, pass;
-            if (!(ss >> hostPort >> user >> pass)) {
+            if (!(iss >> hostPort >> user >> pass)) {
                 std::cout << "Usage: login {host:port} {user} {password}" << std::endl;
                 continue;
             }
-            size_t colon = hostPort.find(':');
-            if (colon == std::string::npos) {
+
+            size_t colonPos = hostPort.find(':');
+            if (colonPos == std::string::npos) {
                 std::cout << "Invalid host:port format" << std::endl;
                 continue;
             }
-            std::string host = hostPort.substr(0, colon);
-            short port = std::stoi(hostPort.substr(colon + 1));
-            protocol.connect(host, port, user, pass);
-        }
-        else if (command == "summary") {
-            std::string game, user, file;
-            if (!(ss >> game >> user >> file)) {
-                std::cout << "Usage: summary {game} {user} {file}" << std::endl;
-                continue;
+
+            std::string host = hostPort.substr(0, colonPos);
+            short port = std::stoi(hostPort.substr(colonPos + 1));
+
+            if (protocol.connect(host, port, user, pass)) {
+                if (!listenerStarted) {
+                    listenerStarted = true;
+                    socketListener = std::thread([&protocol]() {
+                        while (protocol.isConnectedToSocket() &&
+                               !protocol.shouldTerminateClient()) {
+                            protocol.runSocketListener();
+                        }
+                    });
+                }
             }
-            protocol.saveSummary(game, user, file);
-        }
-        else if (!protocol.isConnectedToSocket()) {
-            std::cout << "Please login first" << std::endl;
             continue;
         }
-        else if (command == "join") {
+
+        if (command == "logout") {
+            protocol.sendLogout();
+            break;
+        }
+
+        if (!protocol.isConnectedToSocket()) {
+            std::cout << "Not connected. Please login first." << std::endl;
+            continue;
+        }
+
+        if (command == "join") {
             std::string game;
-            if (!(ss >> game)) continue;
-            protocol.sendJoin(game);
+            if (iss >> game)
+                protocol.sendJoin(game);
         }
         else if (command == "report") {
             std::string path;
-            if (!(ss >> path)) continue;
-            std::ifstream f(path);
-            if (!f.good()) {
-                std::cout << "File not found: " << path << std::endl;
-                continue;
-            }
-            protocol.sendReport(path);
+            if (iss >> path)
+                protocol.sendReport(path);
         }
-        else if (command == "logout") {
-            protocol.sendLogout();
+        else if (command == "summary") {
+            std::string game, user, file;
+            if (iss >> game >> user >> file) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                protocol.saveSummary(game, user, file);
+            } else {
+                    std::cout << "Usage: summary {game} {user} {file}" << std::endl;
+                    }
+        }
+
+        else {
+            std::cout << "Unknown command: " << command << std::endl;
         }
     }
 
-    if (socketThread.joinable()) socketThread.join();
+    if (listenerStarted && socketListener.joinable()) {
+        socketListener.join();
+    }
+
     return 0;
 }

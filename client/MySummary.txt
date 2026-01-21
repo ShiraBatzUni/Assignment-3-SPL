@@ -1,0 +1,22 @@
+Germany vs Japan
+Game stats:
+General stats:
+    active: true
+    before halftime: true
+    goals: 0
+    possession: 45%
+    possession update: mid-game
+    score: 1-0
+    shots on target: 1
+Germany stats:
+Japan stats:
+Game event reports:
+0 - kickoff:
+The game has started! What an exciting evening!
+
+1980 - goal:
+GOOOAAALLL!!! Germany take the lead with a powerful strike.
+
+2400 - possession update:
+Germany are controlling the midfield and keeping possession.
+
