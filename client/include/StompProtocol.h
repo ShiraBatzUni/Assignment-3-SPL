@@ -35,8 +35,8 @@ private:
     std::map<std::string, std::vector<GameEventReport>> gameReports;
     
 
-    // פונקציית עזר חדשה לתיקון בעיית ה-Summary
-    std::string normalizeTopic(std::string topic);
+    
+   
 
 public:
     StompProtocol();
@@ -44,10 +44,12 @@ public:
     StompProtocol(const StompProtocol&) = delete;
     StompProtocol& operator=(const StompProtocol&) = delete;
 
-    bool connect(std::string host, short port, std::string user, std::string pass);
+   
     std::string processKeyboardCommand(const std::string& input);
     std::string extractTeamA(const std::string& gameName) const;
     std::string extractTeamB(const std::string& gameName) const;
+    std::string normalizeTopic(std::string topic);
+    bool connect(std::string host, short port, std::string user, std::string pass);
     void printSummary(const std::string& gameName, const std::string& user, const std::string& file);
     void processServerFrame(const std::string& frame);
     void handleMessageFrame(std::string topic, std::string body);
@@ -55,10 +57,8 @@ public:
     void sendReport(std::string path);
     void sendLogout();
     void saveSummary(std::string game, std::string user, std::string file);
-    
     void runSocketListener();
     bool shouldTerminateClient() const;
     bool isConnectedToSocket() const;
-    void parseFrame(const std::string& frame, std::string& command, 
-                    std::unordered_map<std::string, std::string>& headers, std::string& body);
+    void parseFrame(const std::string& frame, std::string& command, std::unordered_map<std::string, std::string>& headers, std::string& body);
 };

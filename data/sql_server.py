@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import socket
 import sys
 import threading
@@ -7,12 +6,10 @@ import sqlite3
 SERVER_NAME = "STOMP_PYTHON_SQL_SERVER"
 DB_FILE = "stomp_server.db"
 
-# מפה לניהול הרשמות: { topic: { client_socket: sub_id } }
 subscriptions = {}
 subscriptions_lock = threading.Lock()
 
 def recv_null_terminated(sock: socket.socket) -> str:
-    """קריאת פריים עד לתו ה-NULL כפי שנדרש ב-STOMP"""
     data = b""
     while True:
         try:
@@ -61,7 +58,6 @@ def execute_sql_command(sql_command: str) -> str:
         return f"error: {str(e)}"
 
 def parse_stomp_frame(frame: str):
-    """פירוק פריים STOMP לפקודה, כותרות וגוף"""
     lines = frame.split("\n")
     if not lines or not lines[0]:
         return None, {}, ""
@@ -91,13 +87,10 @@ def handle_client(client_socket: socket.socket, addr):
 
             print(f"[{SERVER_NAME}] Received {command} from {addr}")
 
-            # --- CONNECT ---
             if command == "CONNECT":
-                # בגרסה פשוטה זו אנו מאשרים תמיד, ניתן להוסיף בדיקת משתמש ב-DB
                 response = "CONNECTED\nversion:1.2\n\n"
                 client_socket.sendall((response + "\0").encode("utf-8"))
 
-            # --- SUBSCRIBE ---
             elif command == "SUBSCRIBE":
                 dest = headers.get("destination")
                 sub_id = headers.get("id")
@@ -107,30 +100,26 @@ def handle_client(client_socket: socket.socket, addr):
                             subscriptions[dest] = {}
                         subscriptions[dest][client_socket] = sub_id
                 
-                # שליחת RECEIPT אם התבקש (הלקוח שלך מצפה לזה ב-Join)
+               
                 if "receipt" in headers:
                     receipt_id = headers["receipt"]
                     res = f"RECEIPT\nreceipt-id:{receipt_id}\n\n"
                     client_socket.sendall((res + "\0").encode("utf-8"))
 
-            # --- SEND ---
             elif command == "SEND":
                 dest = headers.get("destination")
                 if dest:
-                    # בניית פריים MESSAGE להפצה
                     message_frame = f"MESSAGE\nsubscription:0\ndestination:{dest}\n\n{body}"
                     with subscriptions_lock:
                         if dest in subscriptions:
                             for sock in list(subscriptions[dest].keys()):
                                 try:
-                                    # עדכון ה-subscription ID הספציפי לכל לקוח
                                     sub_id = subscriptions[dest][sock]
                                     personalized_frame = message_frame.replace("subscription:0", f"subscription:{sub_id}")
                                     sock.sendall((personalized_frame + "\0").encode("utf-8"))
                                 except:
                                     del subscriptions[dest][sock]
 
-            # --- DISCONNECT ---
             elif command == "DISCONNECT":
                 if "receipt" in headers:
                     receipt_id = headers["receipt"]
@@ -138,8 +127,6 @@ def handle_client(client_socket: socket.socket, addr):
                     client_socket.sendall((res + "\0").encode("utf-8"))
                 break
 
-            # --- SQL FALLBACK ---
-            # אם הפריים הוא פקודת SQL ישירה (כמו ב-report של הלקוח שלך)
             elif "INSERT" in command.upper() or "UPDATE" in command.upper():
                 result = execute_sql_command(raw_frame)
                 client_socket.sendall((result + "\0").encode("utf-8"))

@@ -12,15 +12,15 @@ Event::Event(std::string name, std::string team_a_name, std::string team_b_name,
              std::map<std::string, std::string> game_updates,
              std::map<std::string, std::string> team_a_updates,
              std::map<std::string, std::string> team_b_updates,
-             std::string discription)
-    : team_a_name(team_a_name),
-      team_b_name(team_b_name),
-      name(name),
-      time(time),
-      game_updates(game_updates),
-      team_a_updates(team_a_updates),
-      team_b_updates(team_b_updates),
-      description(discription)
+             std::string discription):       
+            team_a_name(team_a_name),
+            team_b_name(team_b_name),
+            name(name),
+            time(time),
+            game_updates(game_updates),
+            team_a_updates(team_a_updates),
+            team_b_updates(team_b_updates),
+            description(discription)
 {
 }
 
@@ -80,11 +80,10 @@ names_and_events parseEventsFile(std::string json_path)
 
     std::string team_a_name = data["team a"];
     std::string team_b_name = data["team b"];
-
-    // run over all the events and convert them to Event objects
     std::vector<Event> events;
-    for (auto &event : data["events"])
-    {
+
+    for (auto &event : data["events"]) {
+
         std::string name = event["event name"];
         int time = event["time"];
         std::string description = event["description"];

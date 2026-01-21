@@ -1,17 +1,17 @@
 #include "../include/StompProtocol.h"
-#include "../include/event.h" // פותר את שגיאת namespaced_events ו-parseEventsFile
+#include "../include/event.h" 
 #include <iostream>
 #include <fstream>
 
 StompProtocol::StompProtocol() 
-    : receiptCounter(0),            // 1. ראשון ב-Header
-      pendingReceipts(),            // 2. שני
-      topicIds(),                   // 3. שלישי
-      connectionHandler(nullptr),    // 4. רביעי
-      currentUser(""),              // 5. חמישי (חדש)
-      connected(false),             // 6. שישי
-      shouldTerminate(false),       // 7. שביעי
-      gameReports() {}              // 8. שמיני
+    : receiptCounter(0),           
+      pendingReceipts(),            
+      topicIds(),                  
+      connectionHandler(nullptr),    
+      currentUser(""),              
+      connected(false),             
+      shouldTerminate(false),      
+      gameReports() {}              
 
 StompProtocol::~StompProtocol() { if (connectionHandler) delete connectionHandler; }
 
@@ -30,17 +30,16 @@ bool StompProtocol::connect(std::string host, short port, std::string user, std:
         return false;
     }
 
-    // שליחת פריים CONNECT
     std::string frame = "CONNECT\naccept-version:1.2\nhost:stomp.cs.bgu.ac.il\nlogin:" + user + "\npasscode:" + pass + "\n\n";
     if (!connectionHandler->sendFrame(frame)) return false;
 
     std::string response;
     if (!connectionHandler->getFrame(response)) return false;
     std::cout << "\nFrame received from server:\n---\n" << response << "\n---\n" << std::endl;
-    // בדיקה אם התקבל אישור מהשרת
+    
     if (response.find("CONNECTED") != std::string::npos) {
-        this->connected = true; // עדכון המשתנה שמאפשר את שאר הפקודות
-        this->currentUser = user; // שמירה לטובת ה-Summary
+        this->connected = true; 
+        this->currentUser = user; 
         std::cout << "Login successful" << std::endl;
         return true;
     }
@@ -60,14 +59,12 @@ std::string StompProtocol::processKeyboardCommand(const std::string& input) {
         std::getline(iss, desc);
         if (!desc.empty() && desc[0] == ' ') desc = desc.substr(1);
 
-        // תיקון image_5bd2c4: שימוש בחץ (->) כי זה מצביע
         std::string sql = "INSERT INTO events (user, team, eventType, time, beforeHalftime, description) VALUES ('" 
                           + user + "', '" + team + "', '" + eventType + "', " 
                           + std::to_string(time) + ", " + (beforeHalf ? "1" : "0") + ", '" + desc + "')";
         
         if (connectionHandler) connectionHandler->sendFrame(sql);
 
-        // עדכון מקומי ל-Summary
         GameEventReport report;
         report.user = user; report.eventName = eventType;
         report.time = time; report.description = desc;
@@ -82,7 +79,6 @@ void StompProtocol::processServerFrame(const std::string& frame) {
     std::string command, body;
     std::unordered_map<std::string, std::string> headers;
     
-    // פירוק הפריים למרכיביו
     parseFrame(frame, command, headers, body);
 
     if (command == "RECEIPT") {
@@ -105,7 +101,6 @@ void StompProtocol::processServerFrame(const std::string& frame) {
     } 
     else if (command == "MESSAGE") {
         std::string topic = headers["destination"];
-        // עיבוד ההודעה ושמירתה ללא כפילויות
         handleMessageFrame(topic, body);
     }
     else if (command == "ERROR") {
@@ -135,7 +130,6 @@ void StompProtocol::handleMessageFrame(std::string topic, std::string body) {
         if (line == "team b updates:")       { section = Section::TEAM_B;  continue; }
         if (line == "description:")          { section = Section::DESCRIPTION; continue; }
 
-        // שדות כותרת בפורמט key: value
         size_t pos = line.find(": ");
         if (pos != std::string::npos && section != Section::DESCRIPTION) {
             std::string key = line.substr(0, pos);
@@ -149,7 +143,6 @@ void StompProtocol::handleMessageFrame(std::string topic, std::string body) {
             continue;
         }
 
-        // עדכונים בתוך מקטעים
         if (section == Section::GENERAL || section == Section::TEAM_A || section == Section::TEAM_B) {
             size_t p = line.find(": ");
             if (p != std::string::npos) {
@@ -163,7 +156,6 @@ void StompProtocol::handleMessageFrame(std::string topic, std::string body) {
             continue;
         }
 
-        // תיאור (יכול להיות multi-line)
         if (section == Section::DESCRIPTION) {
             report.description += line + "\n";
         }
@@ -217,15 +209,12 @@ void StompProtocol::sendReport(std::string path) {
 
 void StompProtocol::runSocketListener() {
     std::string frame;
-    // getFrame מחכה להודעה מהסוקט
     if (connectionHandler && connectionHandler->getFrame(frame)) {
         if (!frame.empty()) {
-            // הדפסה זו קריטית כדי לראות את ה-RECEIPT של ה-logout
             std::cout << "\nFrame received from server:\n---\n" << frame << "\n---\n" << std::endl;
             processServerFrame(frame);
         }
     } else {
-        // אם הסוקט נסגר (למשל השרת ניתק אותנו)
         connected = false;
         shouldTerminate = true;
     }
@@ -238,12 +227,12 @@ void StompProtocol::sendJoin(std::string game) {
     if (connectionHandler && connected) {
         int rId = receiptCounter++;
         std::string topic = (game[0] == '/') ? game : "/" + game;
-        topicIds[1] = topic; // שמירת ה-ID לזיהוי MESSAGE [cite: 147-152]
+        topicIds[1] = topic; 
 
         std::string stompFrame = "SUBSCRIBE\n"
                                  "destination:" + topic + "\n"
                                  "id:1\n"
-                                 "receipt:" + std::to_string(rId) + "\n" // קריטי לקבלת פריים חזרה
+                                 "receipt:" + std::to_string(rId) + "\n" 
                                  "\n";
         
         pendingReceipts[rId] = "Joined channel " + game;
@@ -255,7 +244,7 @@ void StompProtocol::sendLogout() {
     if (connectionHandler && connected) {
         int rId = receiptCounter++;
         std::string frame = "DISCONNECT\n"
-                            "receipt:" + std::to_string(rId) + "\n" // קריטי לסגירה נקייה [cite: 164-165, 485]
+                            "receipt:" + std::to_string(rId) + "\n" 
                             "\n";
         
         pendingReceipts[rId] = "Logout";
