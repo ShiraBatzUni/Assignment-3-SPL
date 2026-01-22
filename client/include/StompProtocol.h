@@ -44,8 +44,6 @@ public:
     StompProtocol(const StompProtocol&) = delete;
     StompProtocol& operator=(const StompProtocol&) = delete;
 
-   
-    std::string processKeyboardCommand(const std::string& input);
     std::string extractTeamA(const std::string& gameName) const;
     std::string extractTeamB(const std::string& gameName) const;
     std::string normalizeTopic(std::string topic);

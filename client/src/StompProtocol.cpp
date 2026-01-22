@@ -47,33 +47,6 @@ bool StompProtocol::connect(std::string host, short port, std::string user, std:
     return false;
 }
 
-std::string StompProtocol::processKeyboardCommand(const std::string& input) {
-    std::istringstream iss(input);
-    std::string command;
-    iss >> command;
-
-    if (command == "report") {
-        std::string user, team, eventType, desc;
-        int time; bool beforeHalf;
-        if (!(iss >> user >> team >> eventType >> time >> beforeHalf)) return "";
-        std::getline(iss, desc);
-        if (!desc.empty() && desc[0] == ' ') desc = desc.substr(1);
-
-        std::string sql = "INSERT INTO events (user, team, eventType, time, beforeHalftime, description) VALUES ('" 
-                          + user + "', '" + team + "', '" + eventType + "', " 
-                          + std::to_string(time) + ", " + (beforeHalf ? "1" : "0") + ", '" + desc + "')";
-        
-        if (connectionHandler) connectionHandler->sendFrame(sql);
-
-        GameEventReport report;
-        report.user = user; report.eventName = eventType;
-        report.time = time; report.description = desc;
-        report.teamA = team;
-
-        gameReports["/Germany_Japan"].push_back(report);
-    }
-    return "";
-}
 
 void StompProtocol::processServerFrame(const std::string& frame) {
     std::string command, body;

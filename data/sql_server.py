@@ -30,6 +30,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
             password TEXT NOT NULL
+            registration__date TEXT
         )
     ''')
     cursor.execute('''
